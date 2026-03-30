@@ -1,0 +1,479 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #0B1120;
+  color: #E0E0FF;
+  color-scheme: dark;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121A2C;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #00D4FF;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00B8E6;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Dashboard Icon Neon Glow (Orange) */
+.dashboard-icon {
+  filter: drop-shadow(0 0 3px #FFB800);
+  transition: all 0.3s ease;
+}
+
+.dashboard-icon:hover {
+  filter: drop-shadow(0 0 6px #FFB800);
+}
+
+@keyframes pulse-glow-orange {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px #FFB800);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px #FFB800);
+  }
+}
+
+[data-active="true"] .dashboard-icon {
+  animation: pulse-glow-orange 2s ease-in-out infinite;
+}
+
+/* Create Case Icon Neon Glow (Purple) */
+.create-case-icon {
+  filter: drop-shadow(0 0 3px #9D4EDD);
+  transition: all 0.3s ease;
+}
+
+.create-case-icon:hover {
+  filter: drop-shadow(0 0 6px #9D4EDD);
+}
+
+@keyframes pulse-glow-purple {
+  0%, 100% {
+    filter: drop-shadow(0 0 6px #9D4EDD);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px #9D4EDD);
+  }
+}
+
+[data-active="true"] .create-case-icon {
+  animation: pulse-glow-purple 2s ease-in-out infinite;
+}
+
+/* ============================================ */
+/* LIGHT MODE STYLES - Matching Provided Design */
+/* ============================================ */
+
+.light-mode {
+  /* Main content area - soft gray background like in image */
+  --bg-main: #F3F4F6;
+  --bg-panel: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F9FAFB;
+  
+  /* Text colors - darker for better contrast */
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6B7280;
+  
+  /* Borders - subtle gray */
+  --border-color: #E5E7EB;
+  --border-hover: #D1D5DB;
+  
+  /* Sidebar - light gray like in image */
+  --sidebar-bg: #E5E7EB;
+  --sidebar-text: #374151;
+  --sidebar-hover: #D1D5DB;
+  
+  /* Accent colors */
+  --accent-cyan: #06B6D4;
+  --accent-yellow: #F59E0B;
+  --accent-pink: #EC4899;
+  
+  /* Stat card backgrounds (pastel colors from image) */
+  --card-blue: #DBEAFE;
+  --card-yellow: #FEF3C7;
+  --card-purple: #E9D5FF;
+  --card-pink: #FCE7F3;
+  --card-green: #D1FAE5;
+}
+
+/* Apply light mode to body */
+body.light-mode {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+}
+
+/* Main content area in light mode */
+.light-mode main {
+  background-color: var(--bg-main);
+}
+
+/* Panels and cards */
+.light-mode .bg-panel {
+  background-color: var(--bg-panel) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-mode .bg-background {
+  background-color: var(--bg-main) !important;
+}
+
+/* Text colors */
+.light-mode .text-text-primary {
+  color: var(--text-primary) !important;
+}
+
+.light-mode .text-text-muted {
+  color: var(--text-muted) !important;
+}
+
+.light-mode .text-text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+/* Borders */
+.light-mode .border-accent-cyan\/20,
+.light-mode .border-accent-cyan\/30 {
+  border-color: var(--border-color) !important;
+}
+
+.light-mode .border-accent-cyan\/10 {
+  border-color: #F0F2F5 !important;
+}
+
+/* Hover states */
+.light-mode .hover\:bg-background\/50:hover,
+.light-mode .hover\:bg-accent-cyan\/5:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+/* KPI Cards - pastel backgrounds like in image */
+.light-mode .kpi-card {
+  background: #FFFFFF !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Individual KPI card colors - matching image */
+.light-mode .kpi-card:nth-child(1) {
+  background: var(--card-blue) !important;
+}
+
+.light-mode .kpi-card:nth-child(2) {
+  background: var(--card-yellow) !important;
+}
+
+.light-mode .kpi-card:nth-child(3) {
+  background: var(--card-pink) !important;
+}
+
+.light-mode .kpi-card:nth-child(4) {
+  background: var(--card-green) !important;
+}
+
+.light-mode .kpi-card .text-text-primary {
+  color: var(--text-primary) !important;
+}
+
+.light-mode .kpi-card .text-text-muted {
+  color: var(--text-muted) !important;
+}
+
+/* Sidebar - light gray like in image */
+.light-mode aside {
+  background-color: var(--sidebar-bg) !important;
+  color: var(--sidebar-text) !important;
+  border-right: 1px solid var(--border-color) !important;
+}
+
+.light-mode aside .text-text-primary {
+  color: var(--sidebar-text) !important;
+}
+
+.light-mode aside .text-text-muted {
+  color: var(--text-muted) !important;
+}
+
+/* Sidebar menu items */
+.light-mode aside a,
+.light-mode aside button {
+  color: var(--sidebar-text) !important;
+}
+
+.light-mode aside a:hover,
+.light-mode aside button:hover {
+  background-color: var(--sidebar-hover) !important;
+}
+
+/* Active sidebar item - cyan background */
+.light-mode aside a[data-active="true"],
+.light-mode aside button[data-active="true"] {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+  color: var(--accent-cyan) !important;
+  border-left: 3px solid var(--accent-cyan) !important;
+}
+
+/* Input fields */
+.light-mode input[type="text"],
+.light-mode input[type="date"],
+.light-mode input[type="email"],
+.light-mode input[type="password"],
+.light-mode input[type="number"],
+.light-mode textarea,
+.light-mode select {
+  background-color: #FFFFFF !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-mode input::placeholder,
+.light-mode textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Tables */
+.light-mode table {
+  background-color: transparent !important;
+}
+
+.light-mode thead th {
+  color: var(--text-muted) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-mode tbody td {
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.light-mode tbody tr:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+/* Buttons - adjust for visibility */
+.light-mode .bg-accent-cyan\/10 {
+  background-color: rgba(0, 212, 255, 0.1) !important;
+}
+
+.light-mode .border-accent-cyan\/30 {
+  border-color: rgba(0, 212, 255, 0.3) !important;
+}
+
+/* Yellow highlights for active items */
+.light-mode .bg-accent-cyan\/10.active,
+.light-mode [data-active="true"] {
+  background-color: #FFD700 !important;
+  color: #1A202C !important;
+}
+
+/* Modals and dialogs */
+.light-mode .fixed.inset-0.bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+.light-mode .modal-content {
+  background-color: var(--bg-panel) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Charts - keep visible */
+.light-mode svg text {
+  fill: var(--text-primary) !important;
+}
+
+/* Status badges */
+.light-mode .bg-green-500\/20 {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+.light-mode .bg-yellow-500\/20 {
+  background-color: rgba(234, 179, 8, 0.15) !important;
+}
+
+.light-mode .bg-pink-500\/20 {
+  background-color: rgba(236, 72, 153, 0.15) !important;
+}
+
+.light-mode .bg-cyan-500\/20 {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+}
+
+/* Gradient cards for warrants, etc. */
+.light-mode .from-pink-500\/10 {
+  --tw-gradient-from: rgba(236, 72, 153, 0.1) !important;
+}
+
+.light-mode .to-pink-600\/20 {
+  --tw-gradient-to: rgba(219, 39, 119, 0.2) !important;
+}
+
+/* Scrollbar in light mode */
+.light-mode ::-webkit-scrollbar-track {
+  background: #F5F7FA;
+}
+
+.light-mode ::-webkit-scrollbar-thumb {
+  background: #00D4FF;
+}
+
+.light-mode ::-webkit-scrollbar-thumb:hover {
+  background: #00B8E6;
+}
+
+/* Special handling for dashboard sections */
+.light-mode .dashboard-section {
+  background-color: var(--bg-panel) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Dashboard title and header text */
+.light-mode h1,
+.light-mode h2,
+.light-mode h3 {
+  color: var(--text-primary) !important;
+}
+
+/* Stat card number colors in light mode */
+.light-mode .text-cyan-400 {
+  color: #0891B2 !important;
+}
+
+.light-mode .text-yellow-400 {
+  color: #D97706 !important;
+}
+
+.light-mode .text-pink-400 {
+  color: #DB2777 !important;
+}
+
+.light-mode .text-green-400 {
+  color: #059669 !important;
+}
+
+/* Code/monospace text */
+.light-mode .font-mono {
+  background-color: #F7FAFC !important;
+  color: var(--text-primary) !important;
+}
+
+/* Loading states */
+.light-mode .animate-spin {
+  border-color: var(--border-color) !important;
+  border-top-color: var(--accent-cyan) !important;
+}
+
+/* ============================================ */
+/* LEAFLET MAP DARK THEME STYLES              */
+/* ============================================ */
+
+/* Dark theme map controls */
+.leaflet-control-zoom a,
+.leaflet-control-layers-toggle {
+  background-color: #121A2C !important;
+  color: #E0E0FF !important;
+  border: 1px solid rgba(0, 212, 255, 0.3) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #1A2842 !important;
+  border-color: rgba(0, 212, 255, 0.6) !important;
+}
+
+/* Popup styling for dark theme */
+.leaflet-popup-content-wrapper {
+  background-color: #121A2C !important;
+  color: #E0E0FF !important;
+  border: 1px solid rgba(0, 212, 255, 0.3) !important;
+  border-radius: 8px !important;
+}
+
+.leaflet-popup-tip {
+  background-color: #121A2C !important;
+}
+
+/* Attribution styling */
+.leaflet-control-attribution {
+  background-color: rgba(18, 26, 44, 0.8) !important;
+  color: #94A3C0 !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #00D4FF !important;
+}
+
+/* Light mode map overrides */
+.light-mode .leaflet-control-zoom a,
+.light-mode .leaflet-control-layers-toggle {
+  background-color: #FFFFFF !important;
+  color: #111827 !important;
+  border: 1px solid #D1D5DB !important;
+}
+
+.light-mode .leaflet-control-zoom a:hover {
+  background-color: #F9FAFB !important;
+  border-color: #00D4FF !important;
+}
+
+.light-mode .leaflet-popup-content-wrapper {
+  background-color: #FFFFFF !important;
+  color: #111827 !important;
+  border: 1px solid #D1D5DB !important;
+}
+
+.light-mode .leaflet-popup-tip {
+  background-color: #FFFFFF !important;
+}
+
+.light-mode .leaflet-control-attribution {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: #6B7280 !important;
+}
+
+.light-mode .leaflet-control-attribution a {
+  color: #0891B2 !important;
+}

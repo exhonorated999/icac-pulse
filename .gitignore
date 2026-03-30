@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-electron
+dist-renderer
+dist-installer
+out
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Build output
+build
+release
+
+# Database and case files (development)
+*.db
+*.db-shm
+*.db-wal
+cases/
+
+# Field security (sensitive)
+field_security.json
+vault.enc
+vault_plain.json

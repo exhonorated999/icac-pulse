@@ -1,0 +1,62 @@
+[
+  {
+    "id": "1",
+    "content": "Add IPC channels and types for case export/import",
+    "status": "completed"
+  },
+  {
+    "id": "2",
+    "content": "Create caseExporter.ts - handles manifest generation, file copying, encryption",
+    "status": "completed"
+  },
+  {
+    "id": "3",
+    "content": "Create caseImporter.ts - handles decryption, validation, database import",
+    "status": "completed"
+  },
+  {
+    "id": "4",
+    "content": "Implement EXPORT_COMPLETE_CASE IPC handler with progress callbacks",
+    "status": "completed"
+  },
+  {
+    "id": "5",
+    "content": "Implement IMPORT_COMPLETE_CASE IPC handler with progress callbacks",
+    "status": "completed"
+  },
+  {
+    "id": "6",
+    "content": "Create ExportCaseDialog component with password setup and security warning",
+    "status": "completed"
+  },
+  {
+    "id": "7",
+    "content": "Create ImportCaseDialog component with password entry and conflict resolution",
+    "status": "completed"
+  },
+  {
+    "id": "8",
+    "content": "Add Export PULSE File button to CaseDetail page",
+    "status": "completed"
+  },
+  {
+    "id": "9",
+    "content": "Add Import Case button to Dashboard",
+    "status": "completed"
+  },
+  {
+    "id": "10",
+    "content": "Test export/import flow with small case",
+    "status": "pending"
+  },
+  {
+    "id": "11",
+    "content": "Test export/import flow with large case (>7GB warning)",
+    "status": "pending"
+  },
+  {
+    "id": "12",
+    "content": "Test case number conflict resolution",
+    "status": "pending"
+  }
+]

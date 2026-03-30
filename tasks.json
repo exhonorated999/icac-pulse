@@ -1,0 +1,32 @@
+[
+  {
+    "id": "1",
+    "content": "Add GPS coordinates columns to suspects table migration",
+    "status": "completed"
+  },
+  {
+    "id": "2",
+    "content": "Install Leaflet and React-Leaflet packages",
+    "status": "completed"
+  },
+  {
+    "id": "3",
+    "content": "Create geocoding IPC handler in main process",
+    "status": "completed"
+  },
+  {
+    "id": "4",
+    "content": "Add geocoding function to preload bridge",
+    "status": "completed"
+  },
+  {
+    "id": "5",
+    "content": "Update SuspectTab with Geocode button and map display",
+    "status": "completed"
+  },
+  {
+    "id": "6",
+    "content": "Test geocoding and map display functionality",
+    "status": "completed"
+  }
+]
