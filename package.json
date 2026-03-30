@@ -1,6 +1,6 @@
 {
   "name": "icac-pulse",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "ICAC P.U.L.S.E. - Offline case management software for ICAC taskforce investigations",
   "main": "out/main/index.js",
   "scripts": {

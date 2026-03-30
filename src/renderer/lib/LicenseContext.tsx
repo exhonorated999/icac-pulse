@@ -27,7 +27,7 @@ interface LicenseContextValue {
 
 const LicenseCtx = createContext<LicenseContextValue | null>(null);
 
-const APP_VERSION = "1.1.0"; // keep in sync with package.json
+const APP_VERSION = "1.2.0"; // keep in sync with package.json
 
 export function LicenseProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LicenseStatus>(getLicenseStatus);
