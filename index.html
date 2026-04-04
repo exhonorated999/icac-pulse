@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICAC P.U.L.S.E. — Proactive Unified Litigation &amp; Security Environment</title>
+    <meta name="description" content="ICAC P.U.L.S.E. is a secure, local-first case management platform built by ICAC detectives, for ICAC detectives. Cybertips, P2P, Proactive Chats, warrants, and prosecution — all in one encrypted ecosystem.">
+    <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+/* ══════════════════════════════════════════════════════════════════
+   VARIABLES
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+    --bg-deep: #070D1A;
+    --bg-panel: #0D1528;
+    --bg-card: rgba(13,21,40,0.75);
+    --bg-card-hover: rgba(18,30,55,0.9);
+    --cyan: #00D4FF;
+    --cyan-dim: #0099BB;
+    --cyan-dark: #006680;
+    --pink: #FF2A6D;
+    --green: #39FFA0;
+    --amber: #FFB800;
+    --purple: #A78BFA;
+    --border: rgba(0,212,255,0.1);
+    --border-hover: rgba(0,212,255,0.3);
+    --text-primary: #E0E8FF;
+    --text-secondary: #7A8BA8;
+    --text-dim: #4A5568;
+    --glow: rgba(0,212,255,0.2);
+    --font-main: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   RESET
+   ══════════════════════════════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--cyan-dark) var(--bg-deep); }
+body {
+    font-family: var(--font-main);
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+img { max-width: 100%; display: block; }
+a { color: var(--cyan); text-decoration: none; transition: all 0.3s; }
+a:hover { color: #fff; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: var(--cyan-dark); border-radius: 3px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   BACKGROUND — PULSE RADAR
+   ══════════════════════════════════════════════════════════════════ */
+.bg-radar {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+.radar-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(0,212,255,0.04);
+}
+.radar-ring:nth-child(1) { width: 600px; height: 600px; top: -100px; right: -200px; }
+.radar-ring:nth-child(2) { width: 900px; height: 900px; top: -250px; right: -350px; }
+.radar-ring:nth-child(3) { width: 1200px; height: 1200px; top: -400px; right: -500px; }
+.radar-ring:nth-child(4) { width: 500px; height: 500px; bottom: -150px; left: -200px; border-color: rgba(0,212,255,0.03); }
+.radar-ring:nth-child(5) { width: 800px; height: 800px; bottom: -300px; left: -350px; border-color: rgba(0,212,255,0.02); }
+.radar-sweep {
+    position: absolute;
+    top: -100px; right: -200px;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(0,212,255,0.04) 40deg, transparent 50deg);
+    animation: radarSweep 8s linear infinite;
+    transform-origin: center;
+}
+@keyframes radarSweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.bg-grid {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(0,212,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.02) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, black 20%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, black 20%, transparent 70%);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+   ══════════════════════════════════════════════════════════════════ */
+h1, h2, h3, h4 { font-family: var(--font-main); font-weight: 700; line-height: 1.15; color: var(--text-primary); }
+.section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 18px;
+    padding: 6px 14px;
+    background: rgba(0,212,255,0.05);
+    border: 1px solid rgba(0,212,255,0.12);
+    border-radius: 4px;
+}
+.mono { font-family: var(--font-mono); }
+.text-cyan { color: var(--cyan); }
+.text-pink { color: var(--pink); }
+.text-dim { color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════════════════
+   LAYOUT
+   ══════════════════════════════════════════════════════════════════ */
+.container { max-width: 1100px; margin: 0 auto; padding: 0 28px; }
+.content-wrap { position: relative; z-index: 1; }
+section { padding: 100px 0; }
+
+/* ══════════════════════════════════════════════════════════════════
+   NAV
+   ══════════════════════════════════════════════════════════════════ */
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 16px 0;
+    transition: all 0.4s;
+}
+nav.scrolled {
+    padding: 10px 0;
+    background: rgba(7,13,26,0.94);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+}
+nav .container { display: flex; align-items: center; justify-content: space-between; }
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.nav-brand img { height: 32px; width: 32px; border-radius: 6px; }
+.nav-brand-text {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 3px;
+}
+.nav-brand-text .icac { color: var(--text-dim); font-size: 10px; display: block; letter-spacing: 4px; }
+.nav-brand-text .pulse { color: var(--cyan); }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    transition: color 0.3s;
+}
+.nav-links a:hover { color: var(--cyan); }
+.nav-cta {
+    padding: 9px 22px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--cyan);
+    background: rgba(0,212,255,0.06);
+    border: 1px solid rgba(0,212,255,0.25);
+    border-radius: 5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.3s;
+    text-decoration: none;
+}
+.nav-cta:hover { background: rgba(0,212,255,0.12); border-color: var(--cyan); color: #fff; }
+.mobile-toggle { display: none; background: none; border: 1px solid var(--border); border-radius: 5px; padding: 7px; cursor: pointer; color: var(--cyan); }
+.mobile-toggle svg { width: 22px; height: 22px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   HERO
+   ══════════════════════════════════════════════════════════════════ */
+.hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    padding-top: 80px;
+}
+.hero .container { text-align: center; max-width: 860px; }
+.hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--cyan);
+    padding: 5px 16px;
+    border: 1px solid rgba(0,212,255,0.15);
+    border-radius: 50px;
+    background: rgba(0,212,255,0.04);
+    margin-bottom: 32px;
+    animation: fadeIn 0.8s ease both;
+}
+.hero-eyebrow .dot {
+    width: 6px; height: 6px;
+    background: var(--cyan);
+    border-radius: 50%;
+    animation: blink 2s ease-in-out infinite;
+}
+.hero h1 {
+    font-size: clamp(40px, 5vw, 64px);
+    font-weight: 800;
+    margin-bottom: 24px;
+    animation: fadeInUp 0.8s ease 0.1s both;
+}
+.hero h1 em {
+    font-style: normal;
+    color: var(--cyan);
+    text-shadow: 0 0 15px rgba(0,212,255,0.2);
+}
+.hero-sub {
+    font-size: 18px;
+    color: var(--text-secondary);
+    max-width: 640px;
+    margin: 0 auto 40px;
+    line-height: 1.8;
+    animation: fadeInUp 0.8s ease 0.2s both;
+}
+.hero-actions {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    animation: fadeInUp 0.8s ease 0.3s both;
+}
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 32px;
+    font-family: var(--font-main);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--bg-deep);
+    background: var(--cyan-dim);
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+    box-shadow: 0 0 12px rgba(0,212,255,0.15), 0 4px 12px rgba(0,0,0,0.3);
+}
+.btn-primary:hover { background: var(--cyan); color: var(--bg-deep); transform: translateY(-2px); box-shadow: 0 0 20px rgba(0,212,255,0.25), 0 6px 18px rgba(0,0,0,0.4); }
+.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 32px;
+    font-family: var(--font-main);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+}
+.btn-ghost:hover { color: #fff; border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.03); }
+.hero-meta {
+    margin-top: 20px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    animation: fadeInUp 0.8s ease 0.4s both;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   STAT BAR
+   ══════════════════════════════════════════════════════════════════ */
+.stat-bar {
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: rgba(13,21,40,0.4);
+}
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; text-align: center; }
+.stat-item .stat-val {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--cyan);
+    letter-spacing: 1px;
+}
+.stat-item .stat-lbl { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   PROMISE BANNER
+   ══════════════════════════════════════════════════════════════════ */
+.promise-section {
+    padding: 80px 0;
+    background: linear-gradient(135deg, rgba(0,212,255,0.03) 0%, transparent 40%, rgba(255,42,109,0.02) 100%);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+.promise-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    text-align: center;
+}
+.promise-inner blockquote {
+    font-size: clamp(20px, 2.5vw, 28px);
+    font-weight: 300;
+    color: var(--text-primary);
+    line-height: 1.6;
+    font-style: italic;
+    margin-bottom: 20px;
+}
+.promise-inner blockquote strong { font-weight: 600; color: var(--cyan); font-style: normal; }
+.promise-attr {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   FEATURES — NUMBERED LIST LAYOUT
+   ══════════════════════════════════════════════════════════════════ */
+.features-section h2 { text-align: center; font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 60px; }
+.feature-list { display: flex; flex-direction: column; gap: 20px; }
+.feature-row {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: 24px;
+    align-items: start;
+    padding: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: all 0.35s ease;
+}
+.feature-row:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+    transform: translateX(6px);
+}
+.feature-num {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 32px;
+    color: var(--cyan-dark);
+    line-height: 1;
+    padding-top: 4px;
+}
+.feature-row:hover .feature-num { color: var(--cyan); }
+.feature-body h3 { font-size: 20px; margin-bottom: 8px; }
+.feature-body p { color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
+.feature-body .tag {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 3px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.tag-security { color: var(--cyan); background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.15); }
+.tag-workflow { color: var(--green); background: rgba(57,255,160,0.06); border: 1px solid rgba(57,255,160,0.12); }
+.tag-compliance { color: var(--amber); background: rgba(255,184,0,0.06); border: 1px solid rgba(255,184,0,0.12); }
+.tag-tools { color: var(--purple); background: rgba(167,139,250,0.06); border: 1px solid rgba(167,139,250,0.12); }
+.tag-export { color: var(--pink); background: rgba(255,42,109,0.06); border: 1px solid rgba(255,42,109,0.12); }
+
+/* ══════════════════════════════════════════════════════════════════
+   LIFECYCLE FLOW
+   ══════════════════════════════════════════════════════════════════ */
+.lifecycle-section { text-align: center; }
+.lifecycle-section h2 { font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 16px; }
+.lifecycle-section > .container > p { color: var(--text-secondary); max-width: 580px; margin: 0 auto 50px; font-size: 16px; }
+.lifecycle-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.flow-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: all 0.3s;
+}
+.flow-pill:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-card-hover); }
+.flow-pill .pill-icon { font-size: 18px; }
+.flow-arrow { color: var(--cyan-dark); font-size: 18px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   AUDIENCE
+   ══════════════════════════════════════════════════════════════════ */
+.audience-section h2 { text-align: center; font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 50px; }
+.audience-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.audience-col {
+    padding: 40px 28px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: center;
+    transition: all 0.35s;
+}
+.audience-col:hover { border-color: var(--border-hover); transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+.audience-col .aud-icon { font-size: 42px; margin-bottom: 16px; display: block; }
+.audience-col h4 { font-size: 20px; margin-bottom: 10px; color: var(--cyan); }
+.audience-col p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+
+/* ══════════════════════════════════════════════════════════════════
+   PRICING
+   ══════════════════════════════════════════════════════════════════ */
+.pricing-section { text-align: center; }
+.pricing-section h2 { font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 12px; }
+.pricing-section > .container > p.sub { color: var(--text-secondary); max-width: 560px; margin: 0 auto 50px; font-size: 15px; }
+.price-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; max-width: 860px; margin: 0 auto; }
+.price-box {
+    padding: 44px 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-align: left;
+    transition: all 0.35s;
+    position: relative;
+    overflow: hidden;
+}
+.price-box.highlight { border-color: var(--cyan); }
+.price-box.highlight::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--cyan-dark), var(--cyan), var(--cyan-dark));
+}
+.price-box:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+.price-tier {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 14px;
+}
+.price-val { font-size: 44px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px; }
+.price-note { font-size: 13px; color: var(--text-dim); margin-bottom: 24px; }
+.price-list { list-style: none; margin-bottom: 28px; }
+.price-list li {
+    padding: 7px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.price-list li::before { content: '→'; color: var(--cyan); font-family: var(--font-mono); font-size: 12px; }
+.price-box .btn-primary, .price-box .btn-ghost { width: 100%; justify-content: center; }
+
+/* ══════════════════════════════════════════════════════════════════
+   READ-ONLY CALLOUT
+   ══════════════════════════════════════════════════════════════════ */
+.readonly-callout {
+    margin-top: 50px;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 28px 32px;
+    background: rgba(0,212,255,0.03);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 8px 8px 0;
+    text-align: left;
+}
+.readonly-callout h4 { font-size: 16px; margin-bottom: 8px; color: var(--cyan); }
+.readonly-callout p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+
+/* ══════════════════════════════════════════════════════════════════
+   CTA
+   ══════════════════════════════════════════════════════════════════ */
+.cta-section { text-align: center; padding: 120px 0; }
+.cta-section h2 { font-size: clamp(32px, 4vw, 52px); margin-bottom: 18px; }
+.cta-section p { color: var(--text-secondary); font-size: 17px; max-width: 540px; margin: 0 auto 36px; }
+.cta-actions { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.cta-meta { margin-top: 18px; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+
+/* ══════════════════════════════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════════════════════════════ */
+footer {
+    padding: 40px 0 24px;
+    border-top: 1px solid var(--border);
+    background: rgba(7,13,26,0.6);
+}
+.footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.footer-brand { display: flex; align-items: center; gap: 10px; }
+.footer-brand img { height: 24px; width: 24px; border-radius: 5px; }
+.footer-brand span { font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--cyan); letter-spacing: 2px; }
+.footer-copy { font-size: 12px; color: var(--text-dim); }
+.footer-copy a { color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════════════════
+   DIVIDER
+   ══════════════════════════════════════════════════════════════════ */
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border-hover), transparent); opacity: 0.5; }
+
+/* ══════════════════════════════════════════════════════════════════
+   REVEAL
+   ══════════════════════════════════════════════════════════════════ */
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.reveal.vis { opacity: 1; transform: translateY(0); }
+.reveal-d1 { transition-delay: 0.08s; }
+.reveal-d2 { transition-delay: 0.16s; }
+.reveal-d3 { transition-delay: 0.24s; }
+.reveal-d4 { transition-delay: 0.32s; }
+.reveal-d5 { transition-delay: 0.40s; }
+.reveal-d6 { transition-delay: 0.48s; }
+.reveal-d7 { transition-delay: 0.56s; }
+.reveal-d8 { transition-delay: 0.64s; }
+.reveal-d9 { transition-delay: 0.72s; }
+
+/* ══════════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ══════════════════════════════════════════════════════════════════ */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ══════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+    .audience-cols { grid-template-columns: 1fr; }
+    .price-grid { grid-template-columns: 1fr; max-width: 440px; }
+    .lifecycle-flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+}
+@media (max-width: 768px) {
+    .nav-links { display: none; }
+    .mobile-toggle { display: block; }
+    .nav-links.open {
+        display: flex; flex-direction: column;
+        position: absolute; top: 100%; left: 0; right: 0;
+        background: rgba(7,13,26,0.97); padding: 18px 28px;
+        border-bottom: 1px solid var(--border); gap: 14px;
+    }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .feature-row { grid-template-columns: 40px 1fr; gap: 16px; padding: 24px; }
+    .feature-num { font-size: 24px; }
+    section { padding: 70px 0; }
+    .hero { min-height: auto; padding: 120px 0 60px; }
+}
+    </style>
+</head>
+<body>
+
+<!-- ═══════ BG ═══════ -->
+<div class="bg-radar">
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-sweep"></div>
+</div>
+<div class="bg-grid"></div>
+
+<!-- ═══════ CONTENT ═══════ -->
+<div class="content-wrap">
+
+    <!-- NAV -->
+    <nav id="mainNav">
+        <div class="container">
+            <a href="#" class="nav-brand">
+                <img src="assets/favicon.ico" alt="P.U.L.S.E.">
+                <div class="nav-brand-text">
+                    <span class="icac">ICAC</span>
+                    <span class="pulse">P.U.L.S.E.</span>
+                </div>
+            </a>
+            <div class="nav-links" id="navLinks">
+                <a href="#features">Features</a>
+                <a href="#lifecycle">Workflow</a>
+                <a href="#audience">Who It's For</a>
+                <a href="#pricing">Pricing</a>
+                <a href="#download" class="nav-cta">⬇ Download Demo</a>
+            </div>
+            <button class="mobile-toggle" onclick="document.getElementById('navLinks').classList.toggle('open')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero" id="hero">
+        <div class="container">
+            <div class="hero-eyebrow"><span class="dot"></span> Now Available for Windows</div>
+            <h1>Built by Detectives,<br><em>for Detectives.</em></h1>
+            <p class="hero-sub">
+                ICAC P.U.L.S.E. is a secure, offline-first case management platform purpose-built for
+                Internet Crimes Against Children task forces. From the first CyberTip to the final verdict —
+                every step in one encrypted ecosystem.
+            </p>
+            <div class="hero-actions">
+                <a href="#download" class="btn-primary">⬇ Download 60-Day Demo</a>
+                <a href="#features" class="btn-ghost">See What's Inside</a>
+            </div>
+            <p class="hero-meta">Version 1.2.0 · Windows 10/11 · 60-Day Free Trial · No Credit Card</p>
+        </div>
+    </section>
+
+    <!-- STAT BAR -->
+    <section class="stat-bar">
+        <div class="container">
+            <div class="stat-grid">
+                <div class="stat-item reveal"><div class="stat-val">AES-256</div><div class="stat-lbl">Case Encryption</div></div>
+                <div class="stat-item reveal reveal-d1"><div class="stat-val">100% Offline</div><div class="stat-lbl">Zero Cloud Dependency</div></div>
+                <div class="stat-item reveal reveal-d2"><div class="stat-val">ICAC Compliant</div><div class="stat-lbl">Taskforce-Ready Modules</div></div>
+                <div class="stat-item reveal reveal-d3"><div class="stat-val">60 Days</div><div class="stat-lbl">Risk-Free Trial</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PROMISE -->
+    <section class="promise-section">
+        <div class="container">
+            <div class="promise-inner reveal">
+                <blockquote>
+                    "We didn't build this from a boardroom; we built it from the desk of an <strong>active ICAC Detective</strong>.
+                    We understand the workflow because we live it every day."
+                </blockquote>
+                <div class="promise-attr">— The P.U.L.S.E. Promise</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section id="features" class="features-section">
+        <div class="container">
+            <div class="section-label reveal">Core Capabilities</div>
+            <h2 class="reveal">Nine reasons P.U.L.S.E. is <span class="text-cyan">different.</span></h2>
+            <div class="feature-list">
+
+                <div class="feature-row reveal reveal-d1">
+                    <div class="feature-num">01</div>
+                    <div class="feature-body">
+                        <h3>Sovereignty Over Your Data</h3>
+                        <p>P.U.L.S.E. operates with a local-first architecture — 100% of your data stays offline, stored on your machine or external drive. With built-in AES-256 encryption, your case files remain under your control and off the grid.</p>
+                        <span class="tag tag-security">Security</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d2">
+                    <div class="feature-num">02</div>
+                    <div class="feature-body">
+                        <h3>Mission-Critical Dashboard</h3>
+                        <p>Command your caseload from a centralized hub. Track open, closed, and transferred cases alongside arrest metrics and warrant counts. Smart Alerts trigger the moment a warrant production falls past due — so you never miss a deadline.</p>
+                        <span class="tag tag-workflow">Workflow</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d3">
+                    <div class="feature-num">03</div>
+                    <div class="feature-body">
+                        <h3>Built for ICAC Compliance</h3>
+                        <p>Dedicated modules for CyberTips, P2P, Proactive Chats, and Patrol/WeTip cases. Our specialized focus ensures your agency remains in full alignment with ICAC funding and usage mandates.</p>
+                        <span class="tag tag-compliance">Compliance</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d4">
+                    <div class="feature-num">04</div>
+                    <div class="feature-body">
+                        <h3>Integrated Investigative Intelligence</h3>
+                        <p>Eliminate "tab-switching" fatigue. Access ARIN lookups, email verification, automated parsing, and live IP pings to determine real-time activity — all built directly into the interface.</p>
+                        <span class="tag tag-tools">Tools</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d5">
+                    <div class="feature-num">05</div>
+                    <div class="feature-body">
+                        <h3>Lifecycle Case Management</h3>
+                        <p>A seamless workflow from the first tip to the final verdict. Purpose-built modules guide you through every phase: CyberTips → Warrants → Digital Evidence → Suspect Profiles → Prosecution.</p>
+                        <span class="tag tag-workflow">Workflow</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d6">
+                    <div class="feature-num">06</div>
+                    <div class="feature-body">
+                        <h3>The "One-Button" Discovery Export</h3>
+                        <p>With a single click, P.U.L.S.E. compiles every note, warrant, report, and piece of evidence into a unified Discovery Package — ready for immediate booking or legal review.</p>
+                        <span class="tag tag-export">Export</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d7">
+                    <div class="feature-num">07</div>
+                    <div class="feature-body">
+                        <h3>Outreach &amp; Training Metrics</h3>
+                        <p>Quantify your community impact. Document public outreach sessions, track law enforcement training attendance, and store presentation materials in one accessible repository for year-end reporting.</p>
+                        <span class="tag tag-compliance">Compliance</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d8">
+                    <div class="feature-num">08</div>
+                    <div class="feature-body">
+                        <h3>Digital Statute &amp; Penal Code Reference</h3>
+                        <p>Digitize your criminal complaint codes and personal "cheater" sheets into a searchable database. Share custom codes with your team to ensure unit-wide consistency.</p>
+                        <span class="tag tag-tools">Tools</span>
+                    </div>
+                </div>
+
+                <div class="feature-row reveal reveal-d9">
+                    <div class="feature-num">09</div>
+                    <div class="feature-body">
+                        <h3>Centralized Resource Center</h3>
+                        <p>Your digital locker for investigative excellence. Upload and organize training flyers, course certificates, and essential software tools — OsTriage, WinFE, Project Hindsight — always ready when you're in the field.</p>
+                        <span class="tag tag-tools">Tools</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- LIFECYCLE FLOW -->
+    <section id="lifecycle" class="lifecycle-section">
+        <div class="container">
+            <div class="section-label reveal" style="display:inline-flex;">Case Lifecycle</div>
+            <h2 class="reveal">From first tip to <span class="text-cyan">final verdict.</span></h2>
+            <p class="reveal">Every module maps to a real phase of your investigation — not generic project management.</p>
+            <div class="lifecycle-flow reveal">
+                <div class="flow-pill"><span class="pill-icon">📩</span> CyberTip</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-pill"><span class="pill-icon">📋</span> Warrants</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-pill"><span class="pill-icon">💾</span> Digital Evidence</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-pill"><span class="pill-icon">🔍</span> Suspect Profiles</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-pill"><span class="pill-icon">⚖️</span> Prosecution</div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-pill"><span class="pill-icon">📦</span> DA Package</div>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- AUDIENCE -->
+    <section id="audience" class="audience-section">
+        <div class="container">
+            <div class="section-label reveal" style="display:inline-flex;">Who It's For</div>
+            <h2 class="reveal">Every detective deserves <span class="text-cyan">elite tools.</span></h2>
+            <div class="audience-cols">
+                <div class="audience-col reveal reveal-d1">
+                    <span class="aud-icon">🛡️</span>
+                    <h4>ICAC Task Forces</h4>
+                    <p>CyberTip investigations, P2P cases, proactive chat operations. Purpose-built modules that map directly to taskforce mandates and funding requirements.</p>
+                </div>
+                <div class="audience-col reveal reveal-d2">
+                    <span class="aud-icon">🔵</span>
+                    <h4>Digital Forensics Units</h4>
+                    <p>Evidence tracking, device management, chain-of-custody documentation. Integrate digital forensic workflows directly into the case lifecycle.</p>
+                </div>
+                <div class="audience-col reveal reveal-d3">
+                    <span class="aud-icon">⭐</span>
+                    <h4>Small Agency Detectives</h4>
+                    <p>No IT budget? No dedicated server? No problem. P.U.L.S.E. runs locally — even from a USB drive — giving rural detectives the same tools as metro units.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- PRICING -->
+    <section id="pricing" class="pricing-section">
+        <div class="container">
+            <div class="section-label reveal" style="display:inline-flex;">Pricing</div>
+            <h2 class="reveal">Transparent. <span class="text-cyan">Affordable.</span> Permanent.</h2>
+            <p class="sub reveal">No tiers. No upsells. Every feature included.</p>
+            <div class="price-grid">
+                <div class="price-box reveal">
+                    <div class="price-tier">Free Demo</div>
+                    <div class="price-val">$0</div>
+                    <div class="price-note">60 days · full access</div>
+                    <ul class="price-list">
+                        <li>Every module unlocked</li>
+                        <li>Unlimited cases &amp; evidence</li>
+                        <li>No credit card required</li>
+                        <li>Transitions to read-only after trial</li>
+                        <li>Your data stays — always</li>
+                    </ul>
+                    <a href="#download" class="btn-ghost">Start Free Demo</a>
+                </div>
+                <div class="price-box highlight reveal reveal-d1">
+                    <div class="price-tier">Lifetime License</div>
+                    <div class="price-val">$600</div>
+                    <div class="price-note">one-time · per seat</div>
+                    <ul class="price-list">
+                        <li>Everything in the demo — forever</li>
+                        <li>Lifetime software updates</li>
+                        <li>DA discovery export</li>
+                        <li>Priority direct support</li>
+                        <li>Never locked out of your data</li>
+                    </ul>
+                    <a href="mailto:sales@intellectle.com?subject=ICAC%20PULSE%20License%20Inquiry" class="btn-primary">Contact Sales</a>
+                </div>
+            </div>
+            <div class="readonly-callout reveal">
+                <h4>The Read-Only Promise</h4>
+                <p>If you decide not to purchase after the trial, you don't lose your work. P.U.L.S.E. transitions to read-only mode — you can still access and manage all existing cases. You just can't create new ones. Your data stays where it belongs: with you.</p>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- DOWNLOAD CTA -->
+    <section id="download" class="cta-section">
+        <div class="container">
+            <h2 class="reveal">Download <span class="text-cyan">P.U.L.S.E.</span></h2>
+            <p class="reveal">60-day free trial. Full access. No strings attached.</p>
+            <div class="cta-actions reveal">
+                <a href="#" class="btn-primary" onclick="handleDownload(event)">⬇ Download P.U.L.S.E. v1.2.0</a>
+            </div>
+            <p class="cta-meta reveal">Version 1.2.0 · Windows 10/11 · ~85 MB</p>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="container">
+            <div class="footer-inner">
+                <div class="footer-brand">
+                    <img src="assets/favicon.ico" alt="P.U.L.S.E.">
+                    <span>P.U.L.S.E.</span>
+                </div>
+                <div class="footer-copy">&copy; 2026 <a href="https://intellectle.com">Intellect LE, LLC</a>. All rights reserved.</div>
+            </div>
+        </div>
+    </footer>
+
+</div>
+
+<!-- JS -->
+<script>
+// Nav scroll
+const nav = document.getElementById('mainNav');
+window.addEventListener('scroll', () => { nav.classList.toggle('scrolled', window.scrollY > 50); });
+
+// Reveal
+const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('vis'); });
+}, { threshold: 0.1, rootMargin: '0px 0px -30px 0px' });
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+        const t = document.querySelector(a.getAttribute('href'));
+        if (t) { e.preventDefault(); document.getElementById('navLinks').classList.remove('open'); t.scrollIntoView({ behavior: 'smooth' }); }
+    });
+});
+
+// Download
+function handleDownload(e) {
+    const url = 'https://intellectle-dashboard-production.up.railway.app/updates/icac-pulse/ICAC.P.U.L.S.E-1.2.0-Setup.exe';
+    window.location.href = url;
+}
+</script>
+
+</body>
+</html>
