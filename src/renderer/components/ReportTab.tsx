@@ -24,6 +24,15 @@ export function ReportTab({ caseId, caseNumber }: ReportTabProps) {
     loadReport();
   }, [caseId]);
 
+  // Reload report when window regains focus (catches pop-out saves)
+  useEffect(() => {
+    const handleFocus = () => {
+      loadReport();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [caseId]);
+
   useEffect(() => {
     // Set the content as HTML when loaded
     if (editorRef.current && content) {
