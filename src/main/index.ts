@@ -2606,9 +2606,19 @@ For questions about this export, contact the investigating officer.
     return absolutePath;
   });
   
-  ipcMain.handle(IPC_CHANNELS.PARSE_NCMEC_PDF, async (_event, pdfPath: string) => {
-    const parsedData = await parseNCMECPDF(pdfPath);
+  ipcMain.handle(IPC_CHANNELS.PARSE_NCMEC_PDF, async (_event, pdfPath: string, password?: string) => {
+    const parsedData = await parseNCMECPDF(pdfPath, password);
     return parsedData;
+  });
+
+  // Copy CyberTip PDF into the case's cybertip directory
+  ipcMain.handle('copy-cybertip-pdf', async (_event, sourcePath: string, caseNumber: string) => {
+    try {
+      const relativePath = fileManager.copyFileToCase(sourcePath, caseNumber, 'cybertip');
+      return { success: true, relativePath };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
   });
   
   // ========== Suspects ==========

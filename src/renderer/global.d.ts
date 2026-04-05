@@ -146,7 +146,8 @@ interface ElectronAPI {
   deleteInvestigation: (id: number) => Promise<{ success: boolean; error?: string }>;
   
   // NCMEC PDF Parsing
-  parseNCMECPDF: (filePath: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  parseNCMECPDF: (filePath: string, password?: string) => Promise<any>;
+  copyCybertipPDF: (sourcePath: string, caseNumber: string) => Promise<{ success: boolean; relativePath?: string; error?: string }>;
 
   // CDR Module
   getCDRRecords: (caseId: number) => Promise<any[]>;

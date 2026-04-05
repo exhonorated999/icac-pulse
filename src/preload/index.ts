@@ -292,8 +292,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('load-chat-highlights', evidenceId),
   getFilePath: (relativePath: string) => 
     ipcRenderer.invoke(IPC_CHANNELS.GET_FILE_PATH, relativePath),
-  parseNCMECPDF: (pdfPath: string) => 
-    ipcRenderer.invoke(IPC_CHANNELS.PARSE_NCMEC_PDF, pdfPath),
+  parseNCMECPDF: (pdfPath: string, password?: string) => 
+    ipcRenderer.invoke(IPC_CHANNELS.PARSE_NCMEC_PDF, pdfPath, password),
+  copyCybertipPDF: (sourcePath: string, caseNumber: string) =>
+    ipcRenderer.invoke('copy-cybertip-pdf', sourcePath, caseNumber),
   
   // Export
   exportDashboardPDF: () => 
