@@ -24,6 +24,7 @@
     --cyan: #00D4FF;
     --cyan-dim: #0099BB;
     --cyan-dark: #006680;
+    --orange: #FF6B2B;
     --pink: #FF2A6D;
     --green: #39FFA0;
     --amber: #FFB800;
@@ -58,36 +59,38 @@ a:hover { color: #fff; }
 ::-webkit-scrollbar-thumb { background: var(--cyan-dark); border-radius: 3px; }
 
 /* ══════════════════════════════════════════════════════════════════
-   BACKGROUND — PULSE RADAR
+   BACKGROUND — HEARTBEAT PULSE
    ══════════════════════════════════════════════════════════════════ */
-.bg-radar {
+.pulse-line-container {
     position: fixed;
     top: 0; left: 0;
     width: 100%; height: 100%;
     z-index: 0;
-    overflow: hidden;
     pointer-events: none;
+    overflow: hidden;
 }
-.radar-ring {
+.pulse-line {
     position: absolute;
-    border-radius: 50%;
-    border: 1px solid rgba(0,212,255,0.04);
+    width: 200%;
+    height: 100px;
+    top: 38%;
+    left: -50%;
+    opacity: 0.06;
+    animation: pulseDrift 12s linear infinite;
 }
-.radar-ring:nth-child(1) { width: 600px; height: 600px; top: -100px; right: -200px; }
-.radar-ring:nth-child(2) { width: 900px; height: 900px; top: -250px; right: -350px; }
-.radar-ring:nth-child(3) { width: 1200px; height: 1200px; top: -400px; right: -500px; }
-.radar-ring:nth-child(4) { width: 500px; height: 500px; bottom: -150px; left: -200px; border-color: rgba(0,212,255,0.03); }
-.radar-ring:nth-child(5) { width: 800px; height: 800px; bottom: -300px; left: -350px; border-color: rgba(0,212,255,0.02); }
-.radar-sweep {
-    position: absolute;
-    top: -100px; right: -200px;
-    width: 600px; height: 600px;
-    border-radius: 50%;
-    background: conic-gradient(from 0deg, transparent 0deg, rgba(0,212,255,0.04) 40deg, transparent 50deg);
-    animation: radarSweep 8s linear infinite;
-    transform-origin: center;
+.pulse-line path {
+    fill: none;
+    stroke: url(#pulseGrad);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 800;
+    stroke-dashoffset: 800;
+    animation: pulseTrace 3s ease-in-out infinite;
 }
-@keyframes radarSweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.pulse-line:nth-child(2) { top: 62%; opacity: 0.035; animation-delay: -4s; }
+.pulse-line:nth-child(2) path { animation-delay: -1.5s; }
+@keyframes pulseDrift { from { transform: translateX(0); } to { transform: translateX(50%); } }
+@keyframes pulseTrace { 0% { stroke-dashoffset: 800; } 50% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -800; } }
 
 .bg-grid {
     position: fixed;
@@ -96,8 +99,8 @@ a:hover { color: #fff; }
     z-index: 0;
     pointer-events: none;
     background-image:
-        linear-gradient(rgba(0,212,255,0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,212,255,0.02) 1px, transparent 1px);
+        linear-gradient(rgba(0,212,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.015) 1px, transparent 1px);
     background-size: 60px 60px;
     mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, black 20%, transparent 70%);
     -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, black 20%, transparent 70%);
@@ -192,6 +195,59 @@ nav .container { display: flex; align-items: center; justify-content: space-betw
 .nav-cta:hover { background: rgba(0,212,255,0.12); border-color: var(--cyan); color: #fff; }
 .mobile-toggle { display: none; background: none; border: 1px solid var(--border); border-radius: 5px; padding: 7px; cursor: pointer; color: var(--cyan); }
 .mobile-toggle svg { width: 22px; height: 22px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   HERO LOGO (CSS-rendered)
+   ══════════════════════════════════════════════════════════════════ */
+.hero-logo {
+    margin: 0 auto 40px;
+    text-align: center;
+    position: relative;
+}
+.hero-logo-icac {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+.hero-logo-pulse-wrap {
+    position: relative;
+    display: inline-block;
+}
+.hero-logo-pulse {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: clamp(48px, 7vw, 72px);
+    letter-spacing: 8px;
+    color: var(--cyan);
+    text-shadow: 0 0 30px rgba(0,212,255,0.15), 0 0 60px rgba(0,212,255,0.06);
+    display: block;
+    line-height: 1.1;
+}
+.hero-logo-ekg {
+    position: absolute;
+    bottom: -6px;
+    left: -5%;
+    width: 110%;
+    height: 50px;
+    overflow: visible;
+}
+.hero-ekg-path {
+    stroke-dasharray: 600;
+    stroke-dashoffset: 600;
+    animation: ekgDraw 2.5s ease-in-out 0.5s forwards, ekgPulse 3s ease-in-out 3s infinite;
+    filter: drop-shadow(0 0 4px rgba(255,107,43,0.3));
+}
+@keyframes ekgDraw {
+    to { stroke-dashoffset: 0; }
+}
+@keyframes ekgPulse {
+    0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px rgba(255,107,43,0.3)); }
+    50% { opacity: 0.6; filter: drop-shadow(0 0 8px rgba(255,107,43,0.5)); }
+}
 
 /* ══════════════════════════════════════════════════════════════════
    HERO
@@ -316,7 +372,7 @@ nav .container { display: flex; align-items: center; justify-content: space-betw
    ══════════════════════════════════════════════════════════════════ */
 .promise-section {
     padding: 80px 0;
-    background: linear-gradient(135deg, rgba(0,212,255,0.03) 0%, transparent 40%, rgba(255,42,109,0.02) 100%);
+    background: linear-gradient(135deg, rgba(0,212,255,0.03) 0%, transparent 40%, rgba(255,107,43,0.02) 100%);
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
 }
@@ -461,7 +517,7 @@ nav .container { display: flex; align-items: center; justify-content: space-betw
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, var(--cyan-dark), var(--cyan), var(--cyan-dark));
+    background: linear-gradient(90deg, var(--cyan-dark), var(--cyan), var(--orange), var(--cyan-dark));
 }
 .price-box:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
 .price-tier {
@@ -529,6 +585,48 @@ footer {
 .footer-copy a { color: var(--text-secondary); }
 
 /* ══════════════════════════════════════════════════════════════════
+   SCREENSHOT SHOWCASE
+   ══════════════════════════════════════════════════════════════════ */
+.showcase-section h2 { text-align: center; font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 16px; }
+.showcase-section > .container > p { text-align: center; color: var(--text-secondary); max-width: 560px; margin: 0 auto 50px; }
+.showcase-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+.showcase-item {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    transition: all 0.4s ease;
+    cursor: default;
+}
+.showcase-item:hover {
+    border-color: var(--border-hover);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3), 0 0 15px rgba(0,212,255,0.06);
+    transform: translateY(-3px);
+}
+.showcase-item img { width: 100%; display: block; }
+.showcase-caption {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 16px 20px;
+    background: linear-gradient(transparent, rgba(7,13,26,0.92));
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+.showcase-caption span {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+@media (max-width: 768px) { .showcase-grid { grid-template-columns: 1fr; } }
+
+/* ══════════════════════════════════════════════════════════════════
    DIVIDER
    ══════════════════════════════════════════════════════════════════ */
 .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border-hover), transparent); opacity: 0.5; }
@@ -584,13 +682,26 @@ footer {
 <body>
 
 <!-- ═══════ BG ═══════ -->
-<div class="bg-radar">
-    <div class="radar-ring"></div>
-    <div class="radar-ring"></div>
-    <div class="radar-ring"></div>
-    <div class="radar-ring"></div>
-    <div class="radar-ring"></div>
-    <div class="radar-sweep"></div>
+<div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;">
+    <div style="position:absolute;inset:0;background:url('assets/background.png') center/cover;opacity:0.12;"></div>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,13,26,0.4) 0%,rgba(7,13,26,0.95) 100%);"></div>
+</div>
+<div class="pulse-line-container">
+    <svg class="pulse-line" viewBox="0 0 1200 100" preserveAspectRatio="none">
+        <defs>
+            <linearGradient id="pulseGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#00D4FF" stop-opacity="0"/>
+                <stop offset="30%" stop-color="#00D4FF"/>
+                <stop offset="50%" stop-color="#FF6B2B"/>
+                <stop offset="70%" stop-color="#00D4FF"/>
+                <stop offset="100%" stop-color="#00D4FF" stop-opacity="0"/>
+            </linearGradient>
+        </defs>
+        <path d="M0,50 L200,50 L220,50 L240,20 L260,80 L280,10 L300,60 L320,45 L340,50 L600,50 L620,50 L640,20 L660,80 L680,10 L700,60 L720,45 L740,50 L1000,50 L1020,50 L1040,20 L1060,80 L1080,10 L1100,60 L1120,45 L1140,50 L1200,50"/>
+    </svg>
+    <svg class="pulse-line" viewBox="0 0 1200 100" preserveAspectRatio="none">
+        <path d="M0,50 L200,50 L220,50 L240,20 L260,80 L280,10 L300,60 L320,45 L340,50 L600,50 L620,50 L640,20 L660,80 L680,10 L700,60 L720,45 L740,50 L1000,50 L1020,50 L1040,20 L1060,80 L1080,10 L1100,60 L1120,45 L1140,50 L1200,50"/>
+    </svg>
 </div>
 <div class="bg-grid"></div>
 
@@ -601,7 +712,6 @@ footer {
     <nav id="mainNav">
         <div class="container">
             <a href="#" class="nav-brand">
-                <img src="assets/favicon.ico" alt="P.U.L.S.E.">
                 <div class="nav-brand-text">
                     <span class="icac">ICAC</span>
                     <span class="pulse">P.U.L.S.E.</span>
@@ -623,6 +733,25 @@ footer {
     <!-- HERO -->
     <section class="hero" id="hero">
         <div class="container">
+            <!-- Rendered Logo -->
+            <div class="hero-logo" style="animation:fadeIn 0.8s ease both;">
+                <div class="hero-logo-icac">ICAC</div>
+                <div class="hero-logo-pulse-wrap">
+                    <span class="hero-logo-pulse">P.U.L.S.E.</span>
+                    <svg class="hero-logo-ekg" viewBox="0 0 400 50" preserveAspectRatio="none">
+                        <defs>
+                            <linearGradient id="ekgHeroGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="var(--cyan)"/>
+                                <stop offset="60%" stop-color="var(--cyan)"/>
+                                <stop offset="100%" stop-color="var(--orange)"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="M0,25 L120,25 L140,25 L155,8 L170,42 L185,8 L200,42 L215,25 L230,25 L400,25"
+                              fill="none" stroke="url(#ekgHeroGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                              class="hero-ekg-path"/>
+                    </svg>
+                </div>
+            </div>
             <div class="hero-eyebrow"><span class="dot"></span> Now Available for Windows</div>
             <h1>Built by Detectives,<br><em>for Detectives.</em></h1>
             <p class="hero-sub">
@@ -757,6 +886,35 @@ footer {
 
     <div class="divider"></div>
 
+    <!-- SCREENSHOT SHOWCASE -->
+    <section class="showcase-section">
+        <div class="container">
+            <div class="section-label reveal" style="display:inline-flex;">See It In Action</div>
+            <h2 class="reveal">Your entire caseload. <span class="text-cyan">One screen.</span></h2>
+            <p class="reveal">Built for the way ICAC detectives actually work — not how software companies think you should.</p>
+            <div class="showcase-grid">
+                <div class="showcase-item reveal reveal-d1">
+                    <img src="assets/screenshot-dashboard.png" alt="P.U.L.S.E. Dashboard">
+                    <div class="showcase-caption">Mission-Critical Dashboard<span>Case analytics, warrant alerts, active investigations</span></div>
+                </div>
+                <div class="showcase-item reveal reveal-d2">
+                    <img src="assets/screenshot-case-detail.png" alt="Case Detail View">
+                    <div class="showcase-caption">Case Detail &amp; Identifiers<span>Overview, suspects, notes, warrants, evidence, prosecution</span></div>
+                </div>
+                <div class="showcase-item reveal reveal-d3">
+                    <img src="assets/screenshot-create-case.png" alt="Create New Case">
+                    <div class="showcase-caption">Purpose-Built Case Types<span>CyberTip, P2P, Proactive Chat, Patrol/WeTip</span></div>
+                </div>
+                <div class="showcase-item reveal reveal-d4">
+                    <img src="assets/screenshot-offense-ref.png" alt="Offense Reference">
+                    <div class="showcase-caption">Digital Offense Reference<span>Searchable state &amp; federal penal codes</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
     <!-- LIFECYCLE FLOW -->
     <section id="lifecycle" class="lifecycle-section">
         <div class="container">
@@ -868,7 +1026,6 @@ footer {
         <div class="container">
             <div class="footer-inner">
                 <div class="footer-brand">
-                    <img src="assets/favicon.ico" alt="P.U.L.S.E.">
                     <span>P.U.L.S.E.</span>
                 </div>
                 <div class="footer-copy">&copy; 2026 <a href="https://intellectle.com">Intellect LE, LLC</a>. All rights reserved.</div>
