@@ -677,6 +677,46 @@ export function CaseDetail() {
     }
   };
 
+  const handleArinLookupForExistingIp = async (ipAddress: string, identifierId?: number) => {
+    if (!ipAddress) {
+      showToast('No IP address to look up', 'error');
+      return;
+    }
+
+    try {
+      showToast(`ARIN lookup for ${ipAddress}...`, 'info');
+      
+      const result = await window.electronAPI.arinLookup(ipAddress);
+      
+      window.focus();
+      
+      if (result.success && result.provider) {
+        showToast(`ISP Provider: ${result.provider}`, 'success');
+        
+        // Update the provider field on the identifier in DB if we have an id
+        if (identifierId && caseId) {
+          try {
+            await window.electronAPI.saveCyberTipIdentifier({
+              caseId: caseId,
+              identifierType: 'ip',
+              identifierValue: ipAddress,
+              provider: result.provider,
+            });
+          } catch (e) {
+            // Non-critical — provider display via toast is enough
+            console.warn('Could not update identifier provider:', e);
+          }
+        }
+      } else {
+        showToast(`ARIN Lookup: ${result.error || 'No provider found'}`, 'error');
+      }
+    } catch (error) {
+      console.error('ARIN lookup error:', error);
+      window.focus();
+      showToast(`Failed ARIN lookup: ${error}`, 'error');
+    }
+  };
+
 
 
   // ========== Other Identifier Handlers ==========
@@ -1936,16 +1976,26 @@ export function CaseDetail() {
                           {identifier.identifier_type === 'email' && (
                             <EmailVerifier email={identifier.identifier_value} />
                           )}
-                          {/* Ping button for IP identifiers */}
+                          {/* ARIN + Ping buttons for IP identifiers */}
                           {identifier.identifier_type === 'ip' && (
-                            <button
-                              onClick={() => handlePingIdentifierIp(identifier.identifier_value)}
-                              className="px-2 py-1 text-xs bg-background border border-accent-cyan/30 text-accent-cyan rounded 
-                                       hover:bg-accent-cyan/10 transition-colors flex items-center gap-1"
-                              title="Check if IP is still active"
-                            >
-                              <span>📡</span> Ping
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleArinLookupForExistingIp(identifier.identifier_value, identifier.id)}
+                                className="px-2 py-1 text-xs bg-background border border-orange-500/30 text-orange-400 rounded 
+                                         hover:bg-orange-500/10 transition-colors flex items-center gap-1"
+                                title="ARIN WHOIS lookup — find ISP provider"
+                              >
+                                <span>🌐</span> ARIN
+                              </button>
+                              <button
+                                onClick={() => handlePingIdentifierIp(identifier.identifier_value)}
+                                className="px-2 py-1 text-xs bg-background border border-accent-cyan/30 text-accent-cyan rounded 
+                                         hover:bg-accent-cyan/10 transition-colors flex items-center gap-1"
+                                title="Check if IP is still active"
+                              >
+                                <span>📡</span> Ping
+                              </button>
+                            </>
                           )}
                           {editMode && (
                             <button
@@ -2491,27 +2541,26 @@ export function CaseDetail() {
                           {identifier.identifier_type === 'email' && (
                             <EmailVerifier email={identifier.identifier_value} />
                           )}
-                          {/* Ping button for IP identifiers */}
+                          {/* ARIN + Ping buttons for IP identifiers */}
                           {identifier.identifier_type === 'ip' && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const result = await window.electronAPI.pingHost(identifier.identifier_value);
-                                  if (result.reachable) {
-                                    showToast(`Host is reachable (${result.roundtrip}ms)`, 'success');
-                                  } else {
-                                    showToast('Host is not reachable', 'error');
-                                  }
-                                } catch (error) {
-                                  showToast('Failed to ping host', 'error');
-                                }
-                              }}
-                              className="px-3 py-1 bg-accent-cyan/10 hover:bg-accent-cyan/20 text-accent-cyan 
-                                       rounded border border-accent-cyan/30 transition-colors text-xs"
-                              title="Ping this IP address"
-                            >
-                              🔍 Ping
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleArinLookupForExistingIp(identifier.identifier_value, identifier.id)}
+                                className="px-2 py-1 text-xs bg-background border border-orange-500/30 text-orange-400 rounded 
+                                         hover:bg-orange-500/10 transition-colors flex items-center gap-1"
+                                title="ARIN WHOIS lookup — find ISP provider"
+                              >
+                                <span>🌐</span> ARIN
+                              </button>
+                              <button
+                                onClick={() => handlePingIdentifierIp(identifier.identifier_value)}
+                                className="px-2 py-1 text-xs bg-background border border-accent-cyan/30 text-accent-cyan rounded 
+                                         hover:bg-accent-cyan/10 transition-colors flex items-center gap-1"
+                                title="Check if IP is still active"
+                              >
+                                <span>📡</span> Ping
+                              </button>
+                            </>
                           )}
                           {editMode && (
                             <button
