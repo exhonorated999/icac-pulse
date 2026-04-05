@@ -693,17 +693,15 @@ export function CaseDetail() {
       if (result.success && result.provider) {
         showToast(`ISP Provider: ${result.provider}`, 'success');
         
-        // Update the provider field on the identifier in DB if we have an id
-        if (identifierId && caseId) {
+        // Persist the provider to DB and update local state so badge appears
+        if (identifierId) {
           try {
-            await window.electronAPI.saveCyberTipIdentifier({
-              caseId: caseId,
-              identifierType: 'ip',
-              identifierValue: ipAddress,
-              provider: result.provider,
-            });
+            await window.electronAPI.updateIdentifierProvider(identifierId, result.provider);
+            // Update local state immediately so the provider badge renders
+            setIdentifiers(prev => prev.map(id => 
+              id.id === identifierId ? { ...id, provider: result.provider } : id
+            ));
           } catch (e) {
-            // Non-critical — provider display via toast is enough
             console.warn('Could not update identifier provider:', e);
           }
         }

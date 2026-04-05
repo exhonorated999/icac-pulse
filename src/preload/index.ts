@@ -296,6 +296,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.PARSE_NCMEC_PDF, pdfPath, password),
   copyCybertipPDF: (sourcePath: string, caseNumber: string) =>
     ipcRenderer.invoke('copy-cybertip-pdf', sourcePath, caseNumber),
+  updateIdentifierProvider: (id: number, provider: string) =>
+    ipcRenderer.invoke('update-identifier-provider', id, provider),
   
   // Export
   exportDashboardPDF: () => 

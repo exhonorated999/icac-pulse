@@ -148,6 +148,7 @@ interface ElectronAPI {
   // NCMEC PDF Parsing
   parseNCMECPDF: (filePath: string, password?: string) => Promise<any>;
   copyCybertipPDF: (sourcePath: string, caseNumber: string) => Promise<{ success: boolean; relativePath?: string; error?: string }>;
+  updateIdentifierProvider: (id: number, provider: string) => Promise<{ success: boolean }>;
 
   // CDR Module
   getCDRRecords: (caseId: number) => Promise<any[]>;

@@ -618,6 +618,15 @@ function registerIPCHandlers() {
     
     return { success: true };
   });
+
+  // Update provider field on an existing identifier
+  ipcMain.handle('update-identifier-provider', async (_event, id: number, provider: string) => {
+    const stmt = db.prepare(`
+      UPDATE cybertip_identifiers SET provider = ? WHERE id = ?
+    `);
+    stmt.run(provider, id);
+    return { success: true };
+  });
   
   // ========== Chat Identifiers ==========
   
