@@ -63,6 +63,12 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // Ensure web content gets focus so first click registers on inputs
+  mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow?.focus();
+    mainWindow?.webContents.focus();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
