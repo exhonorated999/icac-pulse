@@ -48,6 +48,20 @@ export function Settings() {
   const [gridcopHasCredentials, setGridcopHasCredentials] = useState(false);
   const [showGridcopPassword, setShowGridcopPassword] = useState(false);
 
+  // Vigilant LPR state
+  const [vigilantEnabled, setVigilantEnabled] = useState(() => localStorage.getItem('vigilantEnabled') === 'true');
+  const [vigilantUsername, setVigilantUsername] = useState('');
+  const [vigilantPassword, setVigilantPassword] = useState('');
+  const [vigilantHasCredentials, setVigilantHasCredentials] = useState(false);
+  const [showVigilantPassword, setShowVigilantPassword] = useState(false);
+
+  // Thomson Reuters CLEAR state
+  const [trclearEnabled, setTrclearEnabled] = useState(() => localStorage.getItem('trclearEnabled') === 'true');
+  const [trclearUsername, setTrclearUsername] = useState('');
+  const [trclearPassword, setTrclearPassword] = useState('');
+  const [trclearHasCredentials, setTrclearHasCredentials] = useState(false);
+  const [showTrclearPassword, setShowTrclearPassword] = useState(false);
+
   // BYOA state
   interface ByoaApp { id: string; label: string; url: string; }
   const [byoaApps, setByoaApps] = useState<ByoaApp[]>(() => {
@@ -110,6 +124,8 @@ export function Settings() {
       setTloHasCredentials(!!(localStorage.getItem('tloUsername')));
       setIcaccopsHasCredentials(!!(localStorage.getItem('icaccopsUsername')));
       setGridcopHasCredentials(!!(localStorage.getItem('gridcopUsername')));
+      setVigilantHasCredentials(!!(localStorage.getItem('vigilantUsername')));
+      setTrclearHasCredentials(!!(localStorage.getItem('trclearUsername')));
 
       // Check if in portable mode
       const portable = await window.electronAPI.isPortableMode();
@@ -1252,6 +1268,147 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                       <p className="text-xs text-text-muted leading-relaxed">
                         Credentials are stored locally and used to auto-fill the GridCop login form. They are never sent anywhere else.
                       </p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── Vigilant LPR ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m10 0h4m-4 0H9m10 0a2 2 0 002-2V9a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.414-1.414A1 1 0 0014.586 5H13" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">Vigilant — License Plate Recognition</h3>
+                      <p className="text-text-muted text-sm">
+                        Access Motorola Solutions' Vigilant LEARN/PlateSearch platform directly from the resources drawer. Search license plates, run hot lists, and view real-time LPR alerts across the nationwide network. Requires an active Vigilant/VehicleManager account.
+                      </p>
+                      <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl('https://vm.motorolasolutions.com'); }}
+                        className="inline-block mt-1 text-xs text-rose-400 hover:text-rose-300 underline">
+                        Access at motorolasolutions.com →
+                      </a>
+                      {vigilantEnabled && (
+                        <span className="inline-block mt-1 ml-3 text-xs text-rose-400">
+                          {vigilantHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button onClick={() => { const next = !vigilantEnabled; localStorage.setItem('vigilantEnabled', String(next)); setVigilantEnabled(next); window.dispatchEvent(new Event('resourceToggle')); }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${vigilantEnabled ? 'bg-rose-500' : 'bg-gray-600'}`}>
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${vigilantEnabled ? 'translate-x-8' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                {vigilantEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-rose-400 hover:text-rose-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-rose-500/5 border border-rose-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                        <input type="text" placeholder="Vigilant username" value={vigilantUsername} onChange={e => setVigilantUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-rose-500 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input type={showVigilantPassword ? 'text' : 'password'} placeholder="••••••••" value={vigilantPassword} onChange={e => setVigilantPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-rose-500 focus:outline-none pr-10" />
+                          <button type="button" onClick={() => setShowVigilantPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-rose-400 transition">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { localStorage.setItem('vigilantUsername', vigilantUsername); localStorage.setItem('vigilantPassword', vigilantPassword); setVigilantHasCredentials(true); setVigilantUsername(''); setVigilantPassword(''); }}
+                          className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500 rounded-lg text-rose-400 text-xs font-medium transition">Save Credentials</button>
+                        <button onClick={() => { localStorage.removeItem('vigilantUsername'); localStorage.removeItem('vigilantPassword'); setVigilantHasCredentials(false); setVigilantUsername(''); setVigilantPassword(''); }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition">Clear</button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">Credentials are stored locally and used to auto-fill the Vigilant login form. They are never sent anywhere else.</p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── Thomson Reuters CLEAR ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-sky-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">Thomson Reuters CLEAR — People & Business Intelligence</h3>
+                      <p className="text-text-muted text-sm">
+                        Access Thomson Reuters CLEAR directly from the resources drawer. Run comprehensive people searches, locate individuals, verify identities, uncover assets, and map associations using public records, proprietary data, and analytics. Requires an active CLEAR subscription.
+                      </p>
+                      <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl('https://legal.thomsonreuters.com/en/products/clear-investigation-software'); }}
+                        className="inline-block mt-1 text-xs text-sky-400 hover:text-sky-300 underline">
+                        Learn more at thomsonreuters.com →
+                      </a>
+                      {trclearEnabled && (
+                        <span className="inline-block mt-1 ml-3 text-xs text-sky-400">
+                          {trclearHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button onClick={() => { const next = !trclearEnabled; localStorage.setItem('trclearEnabled', String(next)); setTrclearEnabled(next); window.dispatchEvent(new Event('resourceToggle')); }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${trclearEnabled ? 'bg-sky-500' : 'bg-gray-600'}`}>
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${trclearEnabled ? 'translate-x-8' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                {trclearEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-sky-400 hover:text-sky-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-sky-500/5 border border-sky-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                        <input type="text" placeholder="CLEAR username" value={trclearUsername} onChange={e => setTrclearUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-sky-500 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input type={showTrclearPassword ? 'text' : 'password'} placeholder="••••••••" value={trclearPassword} onChange={e => setTrclearPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-sky-500 focus:outline-none pr-10" />
+                          <button type="button" onClick={() => setShowTrclearPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-sky-400 transition">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { localStorage.setItem('trclearUsername', trclearUsername); localStorage.setItem('trclearPassword', trclearPassword); setTrclearHasCredentials(true); setTrclearUsername(''); setTrclearPassword(''); }}
+                          className="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500 rounded-lg text-sky-400 text-xs font-medium transition">Save Credentials</button>
+                        <button onClick={() => { localStorage.removeItem('trclearUsername'); localStorage.removeItem('trclearPassword'); setTrclearHasCredentials(false); setTrclearUsername(''); setTrclearPassword(''); }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition">Clear</button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">Credentials are stored locally and used to auto-fill the CLEAR login form. They are never sent anywhere else.</p>
                     </div>
                   </details>
                 )}

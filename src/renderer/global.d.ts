@@ -98,6 +98,16 @@ interface ElectronAPI {
   gridcopSetVisible: (visible: boolean) => void;
   gridcopReset: () => Promise<void>;
 
+  // Vigilant LPR
+  vigilantSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  vigilantSetVisible: (visible: boolean) => void;
+  vigilantReset: () => Promise<void>;
+
+  // Thomson Reuters CLEAR
+  trclearSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  trclearSetVisible: (visible: boolean) => void;
+  trclearReset: () => Promise<void>;
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => Promise<{ success: boolean }>;
   byoaSetBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;

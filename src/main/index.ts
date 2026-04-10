@@ -36,6 +36,16 @@ let gridcopBrowserView: BrowserView | null = null;
 let gridcopViewVisible = false;
 let lastGridcopBounds: { x: number; y: number; width: number; height: number } | null = null;
 
+// Vigilant LPR BrowserView
+let vigilantBrowserView: BrowserView | null = null;
+let vigilantViewVisible = false;
+let lastVigilantBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+// Thomson Reuters CLEAR BrowserView
+let trclearBrowserView: BrowserView | null = null;
+let trclearViewVisible = false;
+let lastTrclearBounds: { x: number; y: number; width: number; height: number } | null = null;
+
 // BYOA (Bring Your Own Application) dynamic BrowserViews
 interface ByoaEntry { view: BrowserView; visible: boolean; bounds: { x: number; y: number; width: number; height: number } | null; url: string; }
 const byoaViews = new Map<string, ByoaEntry>();
@@ -257,12 +267,84 @@ function createWindow() {
     }
   });
 
+  // ── Vigilant LPR BrowserView ──
+  vigilantBrowserView = new BrowserView({
+    webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:vigilant' },
+  });
+  mainWindow.addBrowserView(vigilantBrowserView);
+  vigilantBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  vigilantBrowserView.setAutoResize({ width: false, height: false });
+  vigilantBrowserView.webContents.on('did-finish-load', () => {
+    if (!vigilantViewVisible && mainWindow) mainWindow.webContents.focus();
+    vigilantBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    const url = vigilantBrowserView!.webContents.getURL();
+    if (url.includes('Login') || url.includes('login') || url.includes('Auth')) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ u: localStorage.getItem('vigilantUsername') || '', p: localStorage.getItem('vigilantPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.u || creds.p) {
+          vigilantBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="Username"],input[name="username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="login"],input[id*="Login"]');
+                const passInput=document.querySelector('input[name="Password"],input[name="password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.u)});setVal(passInput,${JSON.stringify(creds.p)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
+  // ── Thomson Reuters CLEAR BrowserView ──
+  trclearBrowserView = new BrowserView({
+    webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:trclear' },
+  });
+  mainWindow.addBrowserView(trclearBrowserView);
+  trclearBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  trclearBrowserView.setAutoResize({ width: false, height: false });
+  trclearBrowserView.webContents.on('did-finish-load', () => {
+    if (!trclearViewVisible && mainWindow) mainWindow.webContents.focus();
+    trclearBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    const url = trclearBrowserView!.webContents.getURL();
+    if (url.includes('signon') || url.includes('login') || url.includes('Login') || url.includes('auth')) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ u: localStorage.getItem('trclearUsername') || '', p: localStorage.getItem('trclearPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.u || creds.p) {
+          trclearBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="username"],input[name="Username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="email"]');
+                const passInput=document.querySelector('input[name="password"],input[name="Password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.u)});setVal(passInput,${JSON.stringify(creds.p)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
   // Reposition BrowserViews on window resize
   mainWindow.on('resize', () => {
     if (flockViewVisible && lastFlockBounds && flockBrowserView) flockBrowserView.setBounds(lastFlockBounds);
     if (tloViewVisible && lastTloBounds && tloBrowserView) tloBrowserView.setBounds(lastTloBounds);
     if (icaccopsViewVisible && lastIcaccopsBounds && icaccopsBrowserView) icaccopsBrowserView.setBounds(lastIcaccopsBounds);
     if (gridcopViewVisible && lastGridcopBounds && gridcopBrowserView) gridcopBrowserView.setBounds(lastGridcopBounds);
+    if (vigilantViewVisible && lastVigilantBounds && vigilantBrowserView) vigilantBrowserView.setBounds(lastVigilantBounds);
+    if (trclearViewVisible && lastTrclearBounds && trclearBrowserView) trclearBrowserView.setBounds(lastTrclearBounds);
     // BYOA views
     byoaViews.forEach((entry) => {
       if (entry.visible && entry.bounds) entry.view.setBounds(entry.bounds);
@@ -4481,6 +4563,64 @@ ${data.content}
     const ses = gridcopBrowserView.webContents.session;
     await ses.clearStorageData();
     gridcopBrowserView.webContents.loadURL('https://www.gridcop.com/cb-login');
+  });
+
+  /* ── Vigilant LPR IPC ────────────────────────────────────── */
+  ipcMain.on('vigilant-set-bounds', (_event: any, bounds: any) => {
+    if (!vigilantBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastVigilantBounds = b;
+    if (vigilantViewVisible) vigilantBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('vigilant-set-visible', (_event: any, visible: boolean) => {
+    if (!vigilantBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    vigilantViewVisible = visible;
+    if (visible && lastVigilantBounds) {
+      const currentUrl = vigilantBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        vigilantBrowserView.webContents.loadURL('https://vm.motorolasolutions.com/VM8_Auth/Login/VehicleManager_web');
+      }
+      vigilantBrowserView.setBounds(lastVigilantBounds);
+    } else if (!visible) {
+      vigilantBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('vigilant-reset', async () => {
+    if (!vigilantBrowserView) return;
+    const ses = vigilantBrowserView.webContents.session;
+    await ses.clearStorageData();
+    vigilantBrowserView.webContents.loadURL('https://vm.motorolasolutions.com/VM8_Auth/Login/VehicleManager_web');
+  });
+
+  /* ── Thomson Reuters CLEAR IPC ──────────────────────────── */
+  ipcMain.on('trclear-set-bounds', (_event: any, bounds: any) => {
+    if (!trclearBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastTrclearBounds = b;
+    if (trclearViewVisible) trclearBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('trclear-set-visible', (_event: any, visible: boolean) => {
+    if (!trclearBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    trclearViewVisible = visible;
+    if (visible && lastTrclearBounds) {
+      const currentUrl = trclearBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        trclearBrowserView.webContents.loadURL('https://signon.thomsonreuters.com/?productid=MYATRTA&bhcp=1');
+      }
+      trclearBrowserView.setBounds(lastTrclearBounds);
+    } else if (!visible) {
+      trclearBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('trclear-reset', async () => {
+    if (!trclearBrowserView) return;
+    const ses = trclearBrowserView.webContents.session;
+    await ses.clearStorageData();
+    trclearBrowserView.webContents.loadURL('https://signon.thomsonreuters.com/?productid=MYATRTA&bhcp=1');
   });
 
   /* ── BYOA (Bring Your Own Application) IPC ──────────────── */

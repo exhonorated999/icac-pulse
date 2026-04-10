@@ -50,6 +50,25 @@ const RESOURCES: Resource[] = [
       </svg>
     ),
   },
+  {
+    id: 'vigilant', label: 'Vigilant LPR', enabledKey: 'vigilantEnabled', isBV: true,
+    accent: 'rose', accentHex: '#fb7185',
+    icon: (
+      <svg className="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10m10 0h4m-4 0H9m10 0a2 2 0 002-2V9a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.414-1.414A1 1 0 0014.586 5H13" />
+      </svg>
+    ),
+  },
+  {
+    id: 'trclear', label: 'TR CLEAR', enabledKey: 'trclearEnabled', isBV: true,
+    accent: 'sky', accentHex: '#38bdf8',
+    icon: (
+      <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+      </svg>
+    ),
+  },
 ];
 
 /* ── Load BYOA apps from localStorage ──────────────────────── */
@@ -86,6 +105,8 @@ export function ResourceDrawer() {
   const tloRef = useRef<HTMLDivElement>(null);
   const icaccopsRef = useRef<HTMLDivElement>(null);
   const gridcopRef = useRef<HTMLDivElement>(null);
+  const vigilantRef = useRef<HTMLDivElement>(null);
+  const trclearRef = useRef<HTMLDivElement>(null);
   const byoaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rafRef = useRef<number | null>(null);
 
@@ -125,6 +146,8 @@ export function ResourceDrawer() {
     if (resId === 'tlo') return tloRef.current;
     if (resId === 'icaccops') return icaccopsRef.current;
     if (resId === 'gridcop') return gridcopRef.current;
+    if (resId === 'vigilant') return vigilantRef.current;
+    if (resId === 'trclear') return trclearRef.current;
     if (resId.startsWith('byoa_')) return byoaRefs.current[resId] || null;
     return null;
   }, []);
@@ -143,10 +166,12 @@ export function ResourceDrawer() {
       const setBounds: Record<string, (b: any) => void> = {
         flock: window.electronAPI.flockSetBounds, tlo: window.electronAPI.tloSetBounds,
         icaccops: window.electronAPI.icaccopsSetBounds, gridcop: window.electronAPI.gridcopSetBounds,
+        vigilant: window.electronAPI.vigilantSetBounds, trclear: window.electronAPI.trclearSetBounds,
       };
       const setVisible: Record<string, (v: boolean) => void> = {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
+        vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
       };
       setBounds[resId]?.(b);
       setVisible[resId]?.(true);
@@ -161,6 +186,7 @@ export function ResourceDrawer() {
       const setVisible: Record<string, (v: boolean) => void> = {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
+        vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
       };
       setVisible[resId]?.(false);
     }
@@ -429,6 +455,22 @@ export function ResourceDrawer() {
                 }}
               >
                 <p className="text-gray-600 text-xs">Loading GridCop…</p>
+              </div>
+            </div>
+
+            {/* Vigilant LPR BrowserView placeholder */}
+            <div className={`absolute inset-0 ${activeTab === 'vigilant' ? '' : 'hidden'}`}>
+              <div ref={vigilantRef} className="w-full h-full flex items-center justify-center"
+                style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
+                <p className="text-gray-600 text-xs">Loading Vigilant LPR…</p>
+              </div>
+            </div>
+
+            {/* TR CLEAR BrowserView placeholder */}
+            <div className={`absolute inset-0 ${activeTab === 'trclear' ? '' : 'hidden'}`}>
+              <div ref={trclearRef} className="w-full h-full flex items-center justify-center"
+                style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
+                <p className="text-gray-600 text-xs">Loading Thomson Reuters CLEAR…</p>
               </div>
             </div>
 

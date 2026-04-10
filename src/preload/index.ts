@@ -309,6 +309,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gridcopSetVisible: (visible: boolean) => ipcRenderer.send('gridcop-set-visible', visible),
   gridcopReset: () => ipcRenderer.invoke('gridcop-reset'),
 
+  // Vigilant LPR
+  vigilantSetBounds: (bounds: any) => ipcRenderer.send('vigilant-set-bounds', bounds),
+  vigilantSetVisible: (visible: boolean) => ipcRenderer.send('vigilant-set-visible', visible),
+  vigilantReset: () => ipcRenderer.invoke('vigilant-reset'),
+
+  // Thomson Reuters CLEAR
+  trclearSetBounds: (bounds: any) => ipcRenderer.send('trclear-set-bounds', bounds),
+  trclearSetVisible: (visible: boolean) => ipcRenderer.send('trclear-set-visible', visible),
+  trclearReset: () => ipcRenderer.invoke('trclear-reset'),
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => ipcRenderer.invoke('byoa-create-view', { id, url }),
   byoaSetBounds: (id: string, bounds: any) => ipcRenderer.send('byoa-set-bounds', { id, bounds }),
