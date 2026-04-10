@@ -97,6 +97,13 @@ interface ElectronAPI {
   gridcopSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
   gridcopSetVisible: (visible: boolean) => void;
   gridcopReset: () => Promise<void>;
+
+  // BYOA (Bring Your Own Application)
+  byoaCreateView: (id: string, url: string) => Promise<{ success: boolean }>;
+  byoaSetBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
+  byoaSetVisible: (id: string, visible: boolean) => void;
+  byoaReset: (id: string) => Promise<void>;
+  byoaDestroyView: (id: string) => Promise<{ success: boolean }>;
   
   // Warrants
   addWarrant: (data: any) => Promise<{ success: boolean; error?: string }>;

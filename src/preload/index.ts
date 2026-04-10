@@ -308,6 +308,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gridcopSetBounds: (bounds: any) => ipcRenderer.send('gridcop-set-bounds', bounds),
   gridcopSetVisible: (visible: boolean) => ipcRenderer.send('gridcop-set-visible', visible),
   gridcopReset: () => ipcRenderer.invoke('gridcop-reset'),
+
+  // BYOA (Bring Your Own Application)
+  byoaCreateView: (id: string, url: string) => ipcRenderer.invoke('byoa-create-view', { id, url }),
+  byoaSetBounds: (id: string, bounds: any) => ipcRenderer.send('byoa-set-bounds', { id, bounds }),
+  byoaSetVisible: (id: string, visible: boolean) => ipcRenderer.send('byoa-set-visible', { id, visible }),
+  byoaReset: (id: string) => ipcRenderer.invoke('byoa-reset', { id }),
+  byoaDestroyView: (id: string) => ipcRenderer.invoke('byoa-destroy-view', { id }),
   saveChatHighlights: (evidenceId: number, highlights: any[]) =>
     ipcRenderer.invoke('save-chat-highlights', evidenceId, highlights),
   loadChatHighlights: (evidenceId: number) =>

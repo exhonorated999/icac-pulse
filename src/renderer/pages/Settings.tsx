@@ -48,6 +48,18 @@ export function Settings() {
   const [gridcopHasCredentials, setGridcopHasCredentials] = useState(false);
   const [showGridcopPassword, setShowGridcopPassword] = useState(false);
 
+  // BYOA state
+  interface ByoaApp { id: string; label: string; url: string; }
+  const [byoaApps, setByoaApps] = useState<ByoaApp[]>(() => {
+    try { return JSON.parse(localStorage.getItem('byoaApps') || '[]'); } catch { return []; }
+  });
+  const [byoaShowAdd, setByoaShowAdd] = useState(false);
+  const [byoaNewLabel, setByoaNewLabel] = useState('');
+  const [byoaNewUrl, setByoaNewUrl] = useState('');
+  const [byoaNewUsername, setByoaNewUsername] = useState('');
+  const [byoaNewPassword, setByoaNewPassword] = useState('');
+  const [byoaShowNewPassword, setByoaShowNewPassword] = useState(false);
+
   // Password change state
   const [isPortable, setIsPortable] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -1244,6 +1256,276 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                   </details>
                 )}
               </div>
+
+              {/* ── BYOA Divider ── */}
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-accent-cyan/10" /></div>
+                <div className="relative flex justify-center">
+                  <span className="px-3 text-xs font-bold text-accent-cyan uppercase tracking-widest" style={{ background: 'var(--color-panel, #0d1117)' }}>
+                    Bring Your Own Application
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-text-muted text-sm mb-4">
+                Add any web-based investigative tool or resource. Once enabled, it will appear as a tab in the resources drawer with its own persistent session.
+              </p>
+
+              {/* ── Saved BYOA Apps ── */}
+              {byoaApps.map((app) => {
+                const enabledKey = `byoa_${app.id}_enabled`;
+                const isEnabled = localStorage.getItem(enabledKey) === 'true';
+                const hasCreds = !!(localStorage.getItem(`byoa_${app.id}_username`));
+                return (
+                  <div key={app.id} className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-text-primary font-semibold mb-0.5">{app.label}</h3>
+                          <p className="text-text-muted text-xs truncate max-w-md">{app.url}</p>
+                          {isEnabled && (
+                            <span className="inline-block mt-1 text-xs text-purple-400">
+                              {hasCreds ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => {
+                            // Destroy BrowserView
+                            window.electronAPI.byoaDestroyView(app.id);
+                            // Remove from localStorage
+                            localStorage.removeItem(`byoa_${app.id}_enabled`);
+                            localStorage.removeItem(`byoa_${app.id}_username`);
+                            localStorage.removeItem(`byoa_${app.id}_password`);
+                            const updated = byoaApps.filter(a => a.id !== app.id);
+                            localStorage.setItem('byoaApps', JSON.stringify(updated));
+                            setByoaApps(updated);
+                            window.dispatchEvent(new Event('resourceToggle'));
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition"
+                          title="Remove application"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => {
+                            const next = !isEnabled;
+                            localStorage.setItem(enabledKey, String(next));
+                            setByoaApps([...byoaApps]); // force re-render
+                            window.dispatchEvent(new Event('resourceToggle'));
+                          }}
+                          className={`relative w-14 h-7 rounded-full transition-colors ${
+                            isEnabled ? 'bg-purple-500' : 'bg-gray-600'
+                          }`}
+                        >
+                          <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                            isEnabled ? 'translate-x-8' : 'translate-x-1'
+                          }`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isEnabled && (
+                      <details className="mt-3">
+                        <summary className="cursor-pointer text-xs text-purple-400 hover:text-purple-300 select-none flex items-center gap-1.5 font-medium">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                          </svg>
+                          Login Credentials (auto-fill)
+                        </summary>
+                        <div className="mt-3 space-y-3 p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                            <input
+                              type="text"
+                              placeholder="Username or email"
+                              defaultValue=""
+                              id={`byoa-user-${app.id}`}
+                              className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-text-muted mb-1">Password</label>
+                            <input
+                              type="password"
+                              placeholder="••••••••"
+                              defaultValue=""
+                              id={`byoa-pass-${app.id}`}
+                              className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none pr-10"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                const userEl = document.getElementById(`byoa-user-${app.id}`) as HTMLInputElement;
+                                const passEl = document.getElementById(`byoa-pass-${app.id}`) as HTMLInputElement;
+                                if (userEl?.value) localStorage.setItem(`byoa_${app.id}_username`, userEl.value);
+                                if (passEl?.value) localStorage.setItem(`byoa_${app.id}_password`, passEl.value);
+                                userEl.value = '';
+                                passEl.value = '';
+                                setByoaApps([...byoaApps]); // re-render for status
+                              }}
+                              className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500 rounded-lg text-purple-400 text-xs font-medium transition"
+                            >
+                              Save Credentials
+                            </button>
+                            <button
+                              onClick={() => {
+                                localStorage.removeItem(`byoa_${app.id}_username`);
+                                localStorage.removeItem(`byoa_${app.id}_password`);
+                                setByoaApps([...byoaApps]);
+                              }}
+                              className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                          <p className="text-xs text-text-muted leading-relaxed">
+                            Credentials are stored locally and used to auto-fill the login form. They are never sent anywhere else.
+                          </p>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* ── Add BYOA Button / Form ── */}
+              {!byoaShowAdd ? (
+                <button
+                  onClick={() => setByoaShowAdd(true)}
+                  className="w-full py-3 rounded-lg border-2 border-dashed border-purple-500/30 hover:border-purple-500/60 text-purple-400 hover:text-purple-300 text-sm font-medium transition flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add Custom Application (BYOA)
+                </button>
+              ) : (
+                <div className="bg-background rounded-lg p-5 border border-purple-500/30">
+                  <h4 className="text-text-primary font-semibold mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    New Application
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1">Application Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Palantir, ClearView AI, RISS"
+                        value={byoaNewLabel}
+                        onChange={e => setByoaNewLabel(e.target.value)}
+                        className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-text-muted mb-1">Login / Home URL *</label>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/login"
+                        value={byoaNewUrl}
+                        onChange={e => setByoaNewUrl(e.target.value)}
+                        className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
+                    <details>
+                      <summary className="cursor-pointer text-xs text-purple-400 hover:text-purple-300 select-none flex items-center gap-1.5 font-medium">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                        </svg>
+                        Add Credentials (optional)
+                      </summary>
+                      <div className="mt-3 space-y-3 p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                        <div>
+                          <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                          <input
+                            type="text"
+                            placeholder="Username or email"
+                            value={byoaNewUsername}
+                            onChange={e => setByoaNewUsername(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-text-muted mb-1">Password</label>
+                          <div className="relative">
+                            <input
+                              type={byoaShowNewPassword ? 'text' : 'password'}
+                              placeholder="••••••••"
+                              value={byoaNewPassword}
+                              onChange={e => setByoaNewPassword(e.target.value)}
+                              className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-purple-500 focus:outline-none pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setByoaShowNewPassword(v => !v)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-purple-400 transition"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => {
+                          if (!byoaNewLabel.trim() || !byoaNewUrl.trim()) return;
+                          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                          const newApp: ByoaApp = { id, label: byoaNewLabel.trim(), url: byoaNewUrl.trim() };
+                          const updated = [...byoaApps, newApp];
+                          localStorage.setItem('byoaApps', JSON.stringify(updated));
+                          // Auto-enable the new app
+                          localStorage.setItem(`byoa_${id}_enabled`, 'true');
+                          // Save credentials if provided
+                          if (byoaNewUsername) localStorage.setItem(`byoa_${id}_username`, byoaNewUsername);
+                          if (byoaNewPassword) localStorage.setItem(`byoa_${id}_password`, byoaNewPassword);
+                          setByoaApps(updated);
+                          // Reset form
+                          setByoaNewLabel('');
+                          setByoaNewUrl('');
+                          setByoaNewUsername('');
+                          setByoaNewPassword('');
+                          setByoaShowNewPassword(false);
+                          setByoaShowAdd(false);
+                          window.dispatchEvent(new Event('resourceToggle'));
+                        }}
+                        disabled={!byoaNewLabel.trim() || !byoaNewUrl.trim()}
+                        className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500 rounded-lg text-purple-400 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Save Application
+                      </button>
+                      <button
+                        onClick={() => {
+                          setByoaShowAdd(false);
+                          setByoaNewLabel('');
+                          setByoaNewUrl('');
+                          setByoaNewUsername('');
+                          setByoaNewPassword('');
+                          setByoaShowNewPassword(false);
+                        }}
+                        className="px-4 py-2 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-sm font-medium transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

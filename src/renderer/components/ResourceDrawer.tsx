@@ -9,6 +9,8 @@ interface Resource {
   accent: string;      // tailwind ring color
   accentHex: string;   // for badges / indicators
   icon: React.ReactNode;
+  isByoa?: boolean;
+  byoaUrl?: string;
 }
 
 const RESOURCES: Resource[] = [
@@ -50,30 +52,62 @@ const RESOURCES: Resource[] = [
   },
 ];
 
+/* ── Load BYOA apps from localStorage ──────────────────────── */
+function loadByoaResources(): Resource[] {
+  try {
+    const apps: { id: string; label: string; url: string }[] = JSON.parse(localStorage.getItem('byoaApps') || '[]');
+    return apps.map(a => ({
+      id: `byoa_${a.id}`,
+      label: a.label,
+      enabledKey: `byoa_${a.id}_enabled`,
+      isBV: true,
+      accent: 'purple',
+      accentHex: '#a78bfa',
+      isByoa: true,
+      byoaUrl: a.url,
+      icon: (
+        <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+        </svg>
+      ),
+    }));
+  } catch { return []; }
+}
+
 /* ── Component ─────────────────────────────────────────────── */
 export function ResourceDrawer() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [enabledResources, setEnabledResources] = useState<Resource[]>([]);
+  const [allResources, setAllResources] = useState<Resource[]>([...RESOURCES, ...loadByoaResources()]);
 
   const flockRef = useRef<HTMLDivElement>(null);
   const tloRef = useRef<HTMLDivElement>(null);
   const icaccopsRef = useRef<HTMLDivElement>(null);
   const gridcopRef = useRef<HTMLDivElement>(null);
+  const byoaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rafRef = useRef<number | null>(null);
 
   /* ── Watch localStorage for toggle changes ─────────────── */
   const refreshEnabled = useCallback(() => {
-    const active = RESOURCES.filter(r => localStorage.getItem(r.enabledKey) === 'true');
+    const byoa = loadByoaResources();
+    const all = [...RESOURCES, ...byoa];
+    setAllResources(all);
+    const active = all.filter(r => localStorage.getItem(r.enabledKey) === 'true');
     setEnabledResources(active);
+    // Ensure BYOA BrowserViews exist for enabled apps
+    active.filter(r => r.isByoa && r.byoaUrl).forEach(r => {
+      const rawId = r.id.replace('byoa_', '');
+      window.electronAPI?.byoaCreateView(rawId, r.byoaUrl!);
+    });
     return active;
   }, []);
 
   useEffect(() => {
     refreshEnabled();
     const onStorage = (e: StorageEvent) => {
-      if (RESOURCES.some(r => r.enabledKey === e.key)) refreshEnabled();
+      if (e.key && (e.key.includes('Enabled') || e.key.includes('_enabled') || e.key === 'byoaApps')) refreshEnabled();
     };
     // Also listen for custom event dispatched from Settings
     const onCustom = () => refreshEnabled();
@@ -86,40 +120,55 @@ export function ResourceDrawer() {
   }, [refreshEnabled]);
 
   /* ── BrowserView positioning ───────────────────────────── */
-  const refMap: Record<string, React.RefObject<HTMLDivElement>> = {
-    flock: flockRef, tlo: tloRef, icaccops: icaccopsRef, gridcop: gridcopRef,
-  };
-  const setBoundsFns: Record<string, (b: any) => void> = window.electronAPI ? {
-    flock: window.electronAPI.flockSetBounds,
-    tlo: window.electronAPI.tloSetBounds,
-    icaccops: window.electronAPI.icaccopsSetBounds,
-    gridcop: window.electronAPI.gridcopSetBounds,
-  } : {};
-  const setVisibleFns: Record<string, (v: boolean) => void> = window.electronAPI ? {
-    flock: window.electronAPI.flockSetVisible,
-    tlo: window.electronAPI.tloSetVisible,
-    icaccops: window.electronAPI.icaccopsSetVisible,
-    gridcop: window.electronAPI.gridcopSetVisible,
-  } : {};
+  const getRefEl = useCallback((resId: string): HTMLDivElement | null => {
+    if (resId === 'flock') return flockRef.current;
+    if (resId === 'tlo') return tloRef.current;
+    if (resId === 'icaccops') return icaccopsRef.current;
+    if (resId === 'gridcop') return gridcopRef.current;
+    if (resId.startsWith('byoa_')) return byoaRefs.current[resId] || null;
+    return null;
+  }, []);
 
   const positionBV = useCallback((resId: string) => {
-    const el = refMap[resId]?.current;
+    const el = getRefEl(resId);
     if (!el || !window.electronAPI) return;
     const r = el.getBoundingClientRect();
     const b = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     if (b.width < 10 || b.height < 10) return;
-    setBoundsFns[resId]?.(b);
-    setVisibleFns[resId]?.(true);
-  }, []);
+    if (resId.startsWith('byoa_')) {
+      const rawId = resId.replace('byoa_', '');
+      window.electronAPI.byoaSetBounds(rawId, b);
+      window.electronAPI.byoaSetVisible(rawId, true);
+    } else {
+      const setBounds: Record<string, (b: any) => void> = {
+        flock: window.electronAPI.flockSetBounds, tlo: window.electronAPI.tloSetBounds,
+        icaccops: window.electronAPI.icaccopsSetBounds, gridcop: window.electronAPI.gridcopSetBounds,
+      };
+      const setVisible: Record<string, (v: boolean) => void> = {
+        flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
+        icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
+      };
+      setBounds[resId]?.(b);
+      setVisible[resId]?.(true);
+    }
+  }, [getRefEl]);
 
   const hideBV = useCallback((resId: string) => {
     if (!window.electronAPI) return;
-    setVisibleFns[resId]?.(false);
+    if (resId.startsWith('byoa_')) {
+      window.electronAPI.byoaSetVisible(resId.replace('byoa_', ''), false);
+    } else {
+      const setVisible: Record<string, (v: boolean) => void> = {
+        flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
+        icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
+      };
+      setVisible[resId]?.(false);
+    }
   }, []);
 
   const hideAllBVs = useCallback(() => {
-    RESOURCES.filter(r => r.isBV).forEach(r => hideBV(r.id));
-  }, [hideBV]);
+    allResources.filter(r => r.isBV).forEach(r => hideBV(r.id));
+  }, [hideBV, allResources]);
 
   /* ── Open / Close ──────────────────────────────────────── */
   const handleOpen = useCallback(() => {
@@ -130,8 +179,17 @@ export function ResourceDrawer() {
     setOpen(true);
     // Position BV after animation
     setTimeout(() => {
-      const res = RESOURCES.find(r => r.id === tab);
-      if (res?.isBV) positionBV(tab);
+      const res = active.find(r => r.id === tab);
+      if (res?.isBV) {
+        if (res.isByoa && res.byoaUrl) {
+          const rawId = tab.replace('byoa_', '');
+          window.electronAPI?.byoaCreateView(rawId, res.byoaUrl).then(() => {
+            setTimeout(() => positionBV(tab), 100);
+          });
+        } else {
+          positionBV(tab);
+        }
+      }
     }, 350);
   }, [activeTab, positionBV, refreshEnabled]);
 
@@ -148,19 +206,27 @@ export function ResourceDrawer() {
   /* ── Tab switch ────────────────────────────────────────── */
   const switchTab = useCallback((resId: string) => {
     // Hide all BVs first
-    RESOURCES.filter(r => r.isBV).forEach(r => hideBV(r.id));
+    allResources.filter(r => r.isBV).forEach(r => hideBV(r.id));
     setActiveTab(resId);
-    const res = RESOURCES.find(r => r.id === resId);
+    const res = allResources.find(r => r.id === resId);
     if (res?.isBV && open) {
-      setTimeout(() => positionBV(resId), 50);
+      // For BYOA, ensure view is created before positioning
+      if (res.isByoa && res.byoaUrl) {
+        const rawId = resId.replace('byoa_', '');
+        window.electronAPI?.byoaCreateView(rawId, res.byoaUrl).then(() => {
+          setTimeout(() => positionBV(resId), 100);
+        });
+      } else {
+        setTimeout(() => positionBV(resId), 50);
+      }
     }
-  }, [open, hideBV, positionBV]);
+  }, [open, hideBV, positionBV, allResources]);
 
   /* ── Resize tracking ───────────────────────────────────── */
   useEffect(() => {
     const onResize = () => {
       if (!open || !activeTab) return;
-      const res = RESOURCES.find(r => r.id === activeTab);
+      const res = allResources.find(r => r.id === activeTab);
       if (res?.isBV) {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(() => positionBV(activeTab));
@@ -171,16 +237,16 @@ export function ResourceDrawer() {
       window.removeEventListener('resize', onResize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [open, activeTab, positionBV]);
+  }, [open, activeTab, positionBV, allResources]);
 
   /* ── Reposition after expand/collapse ──────────────────── */
   useEffect(() => {
     if (!open || !activeTab) return;
-    const res = RESOURCES.find(r => r.id === activeTab);
+    const res = allResources.find(r => r.id === activeTab);
     if (res?.isBV) {
       setTimeout(() => positionBV(activeTab), 320);
     }
-  }, [expanded, open, activeTab, positionBV]);
+  }, [expanded, open, activeTab, positionBV, allResources]);
 
   /* ── Hide BVs on unmount ───────────────────────────────── */
   useEffect(() => {
@@ -365,6 +431,26 @@ export function ResourceDrawer() {
                 <p className="text-gray-600 text-xs">Loading GridCop…</p>
               </div>
             </div>
+
+            {/* BYOA BrowserView placeholders */}
+            {allResources.filter(r => r.isByoa).map(r => (
+              <div
+                key={r.id}
+                className={`absolute inset-0 ${activeTab === r.id ? '' : 'hidden'}`}
+              >
+                <div
+                  ref={el => { byoaRefs.current[r.id] = el; }}
+                  className="w-full h-full flex items-center justify-center"
+                  style={{
+                    background: 'rgba(10,15,28,0.5)',
+                    border: '1px dashed rgba(255,255,255,0.08)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <p className="text-gray-600 text-xs">Loading {r.label}…</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

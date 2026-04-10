@@ -36,6 +36,10 @@ let gridcopBrowserView: BrowserView | null = null;
 let gridcopViewVisible = false;
 let lastGridcopBounds: { x: number; y: number; width: number; height: number } | null = null;
 
+// BYOA (Bring Your Own Application) dynamic BrowserViews
+interface ByoaEntry { view: BrowserView; visible: boolean; bounds: { x: number; y: number; width: number; height: number } | null; url: string; }
+const byoaViews = new Map<string, ByoaEntry>();
+
 
 
 // Load secrets from file into environment at startup
@@ -259,6 +263,10 @@ function createWindow() {
     if (tloViewVisible && lastTloBounds && tloBrowserView) tloBrowserView.setBounds(lastTloBounds);
     if (icaccopsViewVisible && lastIcaccopsBounds && icaccopsBrowserView) icaccopsBrowserView.setBounds(lastIcaccopsBounds);
     if (gridcopViewVisible && lastGridcopBounds && gridcopBrowserView) gridcopBrowserView.setBounds(lastGridcopBounds);
+    // BYOA views
+    byoaViews.forEach((entry) => {
+      if (entry.visible && entry.bounds) entry.view.setBounds(entry.bounds);
+    });
   });
 
   // Grant permissions for both default session and the media player partition
@@ -4473,6 +4481,95 @@ ${data.content}
     const ses = gridcopBrowserView.webContents.session;
     await ses.clearStorageData();
     gridcopBrowserView.webContents.loadURL('https://www.gridcop.com/cb-login');
+  });
+
+  /* ── BYOA (Bring Your Own Application) IPC ──────────────── */
+  ipcMain.handle('byoa-create-view', (_event: any, { id, url }: { id: string; url: string }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
+    // If view already exists, just return success
+    if (byoaViews.has(id)) return { success: true };
+    const view = new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        partition: `persist:byoa_${id}`,
+      },
+    });
+    mainWindow.addBrowserView(view);
+    view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    view.setAutoResize({ width: false, height: false });
+    view.webContents.on('did-finish-load', () => {
+      const entry = byoaViews.get(id);
+      if (entry && !entry.visible && mainWindow) mainWindow.webContents.focus();
+      view.webContents.insertCSS(
+        '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+      ).catch(() => {});
+      // Auto-fill credentials
+      const pageUrl = view.webContents.getURL();
+      if (pageUrl.includes('login') || pageUrl.includes('Login') || pageUrl.includes('signin') || pageUrl.includes('auth') || pageUrl === url) {
+        mainWindow?.webContents.executeJavaScript(
+          `JSON.stringify({ u: localStorage.getItem('byoa_${id}_username') || '', p: localStorage.getItem('byoa_${id}_password') || '' })`
+        ).then((json: string) => {
+          const creds = JSON.parse(json);
+          if (creds.u || creds.p) {
+            view.webContents.executeJavaScript(`
+              (function(){
+                function fill(){
+                  const uInput=document.querySelector('input[name="username"],input[name="Username"],input[name="email"],input[name="Email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="email"],input[id*="Email"]');
+                  const pInput=document.querySelector('input[name="password"],input[name="Password"],input[type="password"]');
+                  function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                  setVal(uInput,${JSON.stringify(creds.u)});setVal(pInput,${JSON.stringify(creds.p)});
+                }
+                setTimeout(fill,500);setTimeout(fill,1500);
+              })();
+            `).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    });
+    byoaViews.set(id, { view, visible: false, bounds: null, url });
+    return { success: true };
+  });
+
+  ipcMain.on('byoa-set-bounds', (_event: any, { id, bounds }: { id: string; bounds: any }) => {
+    const entry = byoaViews.get(id);
+    if (!entry || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    entry.bounds = b;
+    if (entry.visible) entry.view.setBounds(b);
+  });
+
+  ipcMain.on('byoa-set-visible', (_event: any, { id, visible }: { id: string; visible: boolean }) => {
+    const entry = byoaViews.get(id);
+    if (!entry || !mainWindow || mainWindow.isDestroyed()) return;
+    entry.visible = visible;
+    if (visible && entry.bounds) {
+      const currentUrl = entry.view.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        entry.view.webContents.loadURL(entry.url);
+      }
+      entry.view.setBounds(entry.bounds);
+    } else if (!visible) {
+      entry.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('byoa-reset', async (_event: any, { id }: { id: string }) => {
+    const entry = byoaViews.get(id);
+    if (!entry) return;
+    const ses = entry.view.webContents.session;
+    await ses.clearStorageData();
+    entry.view.webContents.loadURL(entry.url);
+  });
+
+  ipcMain.handle('byoa-destroy-view', (_event: any, { id }: { id: string }) => {
+    const entry = byoaViews.get(id);
+    if (!entry || !mainWindow || mainWindow.isDestroyed()) return;
+    entry.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    mainWindow.removeBrowserView(entry.view);
+    (entry.view.webContents as any).destroy?.();
+    byoaViews.delete(id);
+    return { success: true };
   });
 
   ipcMain.handle('open-chat-viewer', async (_event, data: { filePath: string; title: string; evidenceId: number }) => {
