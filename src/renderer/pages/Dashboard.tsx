@@ -53,6 +53,8 @@ export function Dashboard() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ content: '', dueDate: '', file: null as File | null });
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [invFilter, setInvFilter] = useState('open');
+  const [showInvFilter, setShowInvFilter] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -591,8 +593,8 @@ export function Dashboard() {
               <div>
                 <p className="text-text-muted text-sm mb-4">Warrant Alerts</p>
                 {overdueWarrants.length > 0 ? (
-                  <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {overdueWarrants.slice(0, 4).map((warrant) => (
+                  <div className="space-y-3 max-h-52 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#30363d #0d1117' }}>
+                    {overdueWarrants.map((warrant) => (
                       <button
                         key={warrant.id}
                         onClick={() => navigate(`/cases/${warrant.case_id}?tab=warrants`)}
@@ -610,11 +612,6 @@ export function Dashboard() {
                         </p>
                       </button>
                     ))}
-                    {overdueWarrants.length > 4 && (
-                      <p className="text-text-muted text-xs text-center pt-2">
-                        +{overdueWarrants.length - 4} more overdue
-                      </p>
-                    )}
                   </div>
                 ) : (
                   <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-6 text-center">
@@ -630,14 +627,48 @@ export function Dashboard() {
           {/* Active Investigations Table */}
           <div className="dashboard-section bg-panel border border-accent-cyan/20 rounded-xl p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-text-primary">Active Investigations</h3>
+              <h3 className="text-xl font-bold text-text-primary">
+                {invFilter === 'all' ? 'All' : invFilter === 'open' ? 'Active' : invFilter === 'closed_no_arrest' ? 'Closed' : invFilter === 'transferred' ? 'Transferred' : 'Arrest'} Investigations
+              </h3>
               <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-background rounded-lg transition-colors">
-                  <span className="text-text-muted">⚙️</span>
-                </button>
-                <button className="p-2 hover:bg-background rounded-lg transition-colors">
-                  <span className="text-text-muted">🔔</span>
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowInvFilter(f => !f)}
+                    className="p-2 hover:bg-background rounded-lg transition-colors"
+                    title="Filter investigations"
+                  >
+                    <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    {invFilter !== 'all' && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-accent-cyan rounded-full" />
+                    )}
+                  </button>
+                  {showInvFilter && (
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-panel border border-accent-cyan/20 rounded-lg shadow-xl z-50 py-1">
+                      {[
+                        { key: 'all', label: 'All Cases' },
+                        { key: 'open', label: 'Active' },
+                        { key: 'closed_no_arrest', label: 'Closed' },
+                        { key: 'transferred', label: 'Transferred' },
+                        { key: 'arrest', label: 'Arrest' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          onClick={() => { setInvFilter(opt.key); setShowInvFilter(false); }}
+                          className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                            invFilter === opt.key
+                              ? 'text-accent-cyan bg-accent-cyan/10 font-medium'
+                              : 'text-text-muted hover:text-text-primary hover:bg-background/50'
+                          }`}
+                        >
+                          {opt.label}
+                          {invFilter === opt.key && <span className="float-right">✓</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => navigate('/cases')}
                   className="px-4 py-2 text-accent-cyan hover:bg-accent-cyan/10 rounded-lg transition-colors text-sm"
@@ -647,9 +678,9 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[420px] overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#30363d #0d1117' }}>
               <table className="w-full">
-                <thead>
+                <thead className="sticky top-0 bg-panel z-10">
                   <tr className="border-b border-accent-cyan/20">
                     <th className="text-left text-text-muted text-sm font-medium pb-3">Case ID</th>
                     <th className="text-left text-text-muted text-sm font-medium pb-3">Category</th>
@@ -659,8 +690,27 @@ export function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {allCases.filter(c => c.status === 'open' || c.status === 'warrants_issued').slice(0, 5).map((caseItem) => {
+                  {allCases.filter(c => {
+                    if (invFilter === 'all') return true;
+                    if (invFilter === 'open') return c.status === 'open' || c.status === 'warrants_issued';
+                    if (invFilter === 'closed_no_arrest') return c.status === 'closed_no_arrest';
+                    if (invFilter === 'transferred') return c.status === 'transferred';
+                    if (invFilter === 'arrest') return c.status === 'arrest';
+                    return c.status === 'open' || c.status === 'warrants_issued';
+                  }).map((caseItem) => {
                     const isWaitingWarrants = caseItem.status === 'warrants_issued';
+                    const statusLabel = caseItem.status === 'open' ? 'Active'
+                      : caseItem.status === 'warrants_issued' ? 'Waiting ESP'
+                      : caseItem.status === 'closed_no_arrest' ? 'Closed'
+                      : caseItem.status === 'transferred' ? 'Transferred'
+                      : caseItem.status === 'arrest' ? 'Arrest'
+                      : caseItem.status;
+                    const statusColor = caseItem.status === 'open' ? 'bg-green-500/20 text-green-400'
+                      : caseItem.status === 'warrants_issued' ? 'bg-yellow-500/20 text-yellow-400'
+                      : caseItem.status === 'closed_no_arrest' ? 'bg-gray-500/20 text-gray-400'
+                      : caseItem.status === 'transferred' ? 'bg-blue-500/20 text-blue-400'
+                      : caseItem.status === 'arrest' ? 'bg-red-500/20 text-red-400'
+                      : 'bg-gray-500/20 text-gray-400';
                     return (
                       <tr 
                         key={caseItem.id} 
@@ -672,18 +722,9 @@ export function Dashboard() {
                         <td className="py-3 text-text-primary">{getCaseTypeLabel(caseItem.case_type)}</td>
                         <td className="py-3 text-text-primary">Officer</td>
                         <td className="py-3">
-                          {isWaitingWarrants ? (
-                            <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs font-medium flex items-center gap-1 w-fit">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                              </svg>
-                              Waiting ESP
-                            </span>
-                          ) : (
-                            <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-medium">
-                              Active
-                            </span>
-                          )}
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}>
+                            {statusLabel}
+                          </span>
                         </td>
                         <td className="py-3">
                           <button
