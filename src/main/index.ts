@@ -4757,7 +4757,7 @@ ${data.content}
         backgroundColor: '#0B1120',
         title: `${platform} — ${data.title}`,
         webPreferences: {
-          nodeIntegration: false,
+          nodeIntegration: true,
           contextIsolation: false,
           javascript: true,
         },
@@ -5250,9 +5250,26 @@ ${data.content}
     const range = sel.getRangeAt(0);
     if (range.toString().trim() === '') return;
     try {
-      const span = document.createElement('span');
-      span.className = 'pulse-hl-' + hlColor;
-      range.surroundContents(span);
+      /* Collect text nodes inside the range (handles cross-element selections) */
+      const textNodes = [];
+      const walker = document.createTreeWalker(range.commonAncestorContainer.nodeType === 3
+        ? range.commonAncestorContainer.parentNode : range.commonAncestorContainer,
+        NodeFilter.SHOW_TEXT);
+      let tn;
+      while ((tn = walker.nextNode())) {
+        if (range.intersectsNode(tn)) textNodes.push(tn);
+      }
+      textNodes.forEach(node => {
+        const nr = document.createRange();
+        nr.selectNodeContents(node);
+        /* Clamp to actual selection boundaries */
+        if (node === range.startContainer) nr.setStart(node, range.startOffset);
+        if (node === range.endContainer) nr.setEnd(node, range.endOffset);
+        if (nr.toString().trim() === '') return;
+        const span = document.createElement('span');
+        span.className = 'pulse-hl-' + hlColor;
+        nr.surroundContents(span);
+      });
       sel.removeAllRanges();
       persistHighlights();
       refreshPanel();
