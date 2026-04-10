@@ -27,11 +27,12 @@ interface LicenseContextValue {
 
 const LicenseCtx = createContext<LicenseContextValue | null>(null);
 
-const APP_VERSION = "1.2.0"; // keep in sync with package.json
+const FALLBACK_VERSION = "1.4.0";
 
 export function LicenseProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LicenseStatus>(getLicenseStatus);
   const [showRegistration, setShowRegistration] = useState(false);
+  const [appVersion, setAppVersion] = useState(FALLBACK_VERSION);
 
   useEffect(() => {
     const s = getLicenseStatus();
@@ -39,6 +40,10 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     if (s.state === "unregistered") {
       setShowRegistration(true);
     }
+    // Fetch real version from main process
+    window.electronAPI?.getAppVersion?.().then((v) => {
+      if (v) setAppVersion(v);
+    }).catch(() => {});
   }, []);
 
   const refresh = useCallback(() => {
@@ -61,8 +66,8 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const checkUpdate = useCallback(async () => {
-    return checkForUpdate(APP_VERSION);
-  }, []);
+    return checkForUpdate(appVersion);
+  }, [appVersion]);
 
   const canCreate = canCreateCases();
 
@@ -76,7 +81,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
         refresh,
         activate,
         checkUpdate,
-        appVersion: APP_VERSION,
+        appVersion,
       }}
     >
       {children}

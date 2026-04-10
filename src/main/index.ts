@@ -2,6 +2,9 @@ import { app, BrowserWindow, BrowserView, ipcMain, dialog, protocol, globalShort
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import * as https from 'https';
+import * as http from 'http';
+import { spawn } from 'child_process';
 import { initDatabase, getDatabase, getRawDatabase, closeDatabase, saveDatabase, getCasesPath, setCasesPath, getUserDataPath } from './database';
 import { generateHardwareId, verifyHardwareId } from './hardware';
 import * as fileManager from './fileManager';
@@ -6713,6 +6716,117 @@ ${data.content}
   ipcMain.handle(IPC_CHANNELS.SECURITY_LOCK, async () => {
     try {
       if (fieldSecurity) fieldSecurity.lock();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ In-App Updater ═══════════════
+
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+  });
+
+  ipcMain.handle('download-app-update', async (_event, { url }: { url: string }) => {
+    const tempDir = app.getPath('temp');
+    const installerPath = path.join(tempDir, `ICAC-PULSE-Update-${Date.now()}.exe`);
+
+    return new Promise((resolve, reject) => {
+      const doDownload = (downloadUrl: string, redirectCount = 0) => {
+        if (redirectCount > 5) {
+          reject(new Error('Too many redirects'));
+          return;
+        }
+
+        const proto = downloadUrl.startsWith('https') ? https : http;
+        proto.get(downloadUrl, { headers: { 'User-Agent': `ICAC-PULSE/${app.getVersion()}` } }, (response) => {
+          // Follow redirects
+          if ((response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) && response.headers.location) {
+            doDownload(response.headers.location, redirectCount + 1);
+            return;
+          }
+
+          if (response.statusCode !== 200) {
+            reject(new Error(`Download failed: HTTP ${response.statusCode}`));
+            return;
+          }
+
+          const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+          let downloadedSize = 0;
+          const file = fs.createWriteStream(installerPath);
+
+          response.on('data', (chunk: Buffer) => {
+            downloadedSize += chunk.length;
+            const percent = totalSize > 0 ? Math.round((downloadedSize / totalSize) * 100) : -1;
+            mainWindow?.webContents.send('update-download-progress', {
+              percent,
+              transferred: downloadedSize,
+              total: totalSize,
+            });
+          });
+
+          response.pipe(file);
+
+          file.on('finish', () => {
+            file.close();
+            resolve({ success: true, installerPath });
+          });
+
+          file.on('error', (err) => {
+            try { fs.unlinkSync(installerPath); } catch {}
+            reject(err);
+          });
+        }).on('error', (err) => {
+          try { fs.unlinkSync(installerPath); } catch {}
+          reject(err);
+        });
+      };
+
+      doDownload(url);
+    });
+  });
+
+  ipcMain.handle('install-app-update', async (_event, { installerPath }: { installerPath: string }) => {
+    try {
+      const appExePath = app.getPath('exe');
+      const batchPath = path.join(app.getPath('temp'), `icac-pulse-updater-${Date.now()}.cmd`);
+
+      // Batch script: wait for app exit → run installer silently → restart app → self-delete
+      const batchContent = [
+        '@echo off',
+        'echo ICAC P.U.L.S.E. Updater',
+        'echo Waiting for application to close...',
+        ':waitloop',
+        `tasklist /FI "PID eq ${process.pid}" 2>NUL | find /I "${process.pid}" >NUL`,
+        'if not errorlevel 1 (',
+        '  timeout /t 1 /nobreak >NUL',
+        '  goto waitloop',
+        ')',
+        'echo Installing update...',
+        `"${installerPath}" /S`,
+        'echo Update installed. Starting application...',
+        'timeout /t 2 /nobreak >NUL',
+        `start "" "${appExePath}"`,
+        'echo Cleaning up...',
+        `del "${installerPath}" >NUL 2>&1`,
+        'del "%~f0" >NUL 2>&1',
+      ].join('\r\n');
+
+      fs.writeFileSync(batchPath, batchContent, 'utf-8');
+
+      const child = spawn('cmd.exe', ['/c', batchPath], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.unref();
+
+      // Give the batch script a moment to start, then quit
+      setTimeout(() => {
+        app.quit();
+      }, 500);
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };

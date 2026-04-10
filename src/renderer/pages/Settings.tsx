@@ -9,6 +9,10 @@ export function Settings() {
   const [activateMsg, setActivateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{ checked: boolean; available: boolean; version?: string; url?: string; changelog?: string }>({ checked: false, available: false });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  // In-app updater states
+  const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'ready' | 'installing'>('idle');
+  const [downloadProgress, setDownloadProgress] = useState({ percent: 0, transferred: 0, total: 0 });
+  const [updateError, setUpdateError] = useState('');
   const [casesPath, setCasesPath] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [mediaEnabled, setMediaEnabled] = useState(() => localStorage.getItem('mediaPlayerEnabled') === 'true');
@@ -422,13 +426,51 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
+    setUpdateError('');
     const info = await checkUpdate();
     setUpdateInfo({ checked: true, available: info.available, version: info.latestVersion, url: info.downloadUrl, changelog: info.changelog });
     setCheckingUpdate(false);
   };
 
+  const handleDownloadAndInstall = async () => {
+    if (!updateInfo.url) return;
+    setUpdateError('');
+    setUpdatePhase('downloading');
+    setDownloadProgress({ percent: 0, transferred: 0, total: 0 });
+
+    // Listen for progress events
+    window.electronAPI.onUpdateDownloadProgress((data) => {
+      setDownloadProgress(data);
+    });
+
+    try {
+      const result = await window.electronAPI.downloadAppUpdate(updateInfo.url);
+      window.electronAPI.removeUpdateDownloadProgressListener();
+
+      if (result.success && result.installerPath) {
+        setUpdatePhase('installing');
+
+        // Auto-proceed to install — launches silent NSIS + batch restart script, then quits app
+        await window.electronAPI.installAppUpdate(result.installerPath);
+        // If we get here, app is about to quit — show status
+      } else {
+        setUpdatePhase('idle');
+        setUpdateError('Download failed. Please try again.');
+      }
+    } catch (err: any) {
+      window.electronAPI.removeUpdateDownloadProgressListener();
+      setUpdatePhase('idle');
+      setUpdateError(err?.message || 'Download failed. Please try again.');
+    }
+  };
+
   // Auto-check for updates on mount
   useEffect(() => { handleCheckUpdate(); }, []);
+
+  // Cleanup progress listener on unmount
+  useEffect(() => {
+    return () => { window.electronAPI?.removeUpdateDownloadProgressListener?.(); };
+  }, []);
 
   return (
     <div className="p-8 bg-background min-h-screen">
@@ -540,29 +582,95 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
               <span className="text-2xl">🔄</span>
               Software Updates
             </h2>
-            <div className="bg-background rounded-lg p-4 border border-accent-cyan/10 flex items-center justify-between">
-              <div>
-                <p className="text-text-primary font-semibold">Current Version: {appVersion}</p>
-                {updateInfo.checked && !updateInfo.available && (
-                  <p className="text-status-success text-sm mt-1">✅ You're running the latest version</p>
-                )}
-                {updateInfo.checked && updateInfo.available && (
-                  <div className="mt-1">
-                    <p className="text-status-warning text-sm">⬆️ Version {updateInfo.version} available</p>
-                    {updateInfo.url && (
-                      <a href={updateInfo.url} target="_blank" rel="noopener noreferrer"
-                         className="text-accent-cyan underline text-sm">Download update</a>
-                    )}
-                  </div>
+
+            {/* Current version + check */}
+            <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-text-primary font-semibold">Current Version: v{appVersion}</p>
+                  {updateInfo.checked && !updateInfo.available && updatePhase === 'idle' && (
+                    <p className="text-status-success text-sm mt-1">✅ You're running the latest version</p>
+                  )}
+                  {updateInfo.checked && updateInfo.available && updatePhase === 'idle' && (
+                    <p className="text-status-warning text-sm mt-1">⬆️ Version {updateInfo.version} is available</p>
+                  )}
+                </div>
+                {updatePhase === 'idle' && (
+                  <button
+                    onClick={handleCheckUpdate}
+                    disabled={checkingUpdate}
+                    className="px-4 py-2 bg-background border border-accent-cyan/30 text-accent-cyan rounded-lg font-medium hover:border-accent-cyan transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {checkingUpdate ? 'Checking...' : 'Check for Updates'}
+                  </button>
                 )}
               </div>
-              <button
-                onClick={handleCheckUpdate}
-                disabled={checkingUpdate}
-                className="px-4 py-2 bg-background border border-accent-cyan/30 text-accent-cyan rounded-lg font-medium hover:border-accent-cyan transition-colors disabled:opacity-50"
-              >
-                {checkingUpdate ? 'Checking...' : 'Check for Updates'}
-              </button>
+
+              {/* Changelog */}
+              {updateInfo.available && updateInfo.changelog && updatePhase === 'idle' && (
+                <div className="mt-3 p-3 bg-panel/50 rounded border border-accent-cyan/10 text-text-muted text-sm">
+                  <span className="text-text-secondary font-medium">What's new:</span> {updateInfo.changelog}
+                </div>
+              )}
+
+              {/* Download & Install button */}
+              {updateInfo.available && updateInfo.url && updatePhase === 'idle' && (
+                <button
+                  onClick={handleDownloadAndInstall}
+                  className="mt-4 w-full py-3 bg-gradient-to-r from-accent-cyan/80 to-accent-cyan rounded-lg text-background font-bold text-lg hover:from-accent-cyan hover:to-accent-cyan/90 transition-all flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download &amp; Install v{updateInfo.version}
+                </button>
+              )}
+
+              {/* Download progress */}
+              {updatePhase === 'downloading' && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-accent-cyan font-medium">Downloading update...</span>
+                    <span className="text-text-muted">
+                      {downloadProgress.percent >= 0
+                        ? `${downloadProgress.percent}%`
+                        : `${(downloadProgress.transferred / 1024 / 1024).toFixed(1)} MB`}
+                      {downloadProgress.total > 0 && ` of ${(downloadProgress.total / 1024 / 1024).toFixed(1)} MB`}
+                    </span>
+                  </div>
+                  <div className="w-full bg-panel rounded-full h-3 overflow-hidden border border-accent-cyan/20">
+                    <div
+                      className="h-full bg-gradient-to-r from-accent-cyan to-accent-cyan/70 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${Math.max(downloadProgress.percent, 0)}%` }}
+                    />
+                  </div>
+                  <p className="text-text-muted text-xs mt-2">⚠️ Do not close the application during update</p>
+                </div>
+              )}
+
+              {/* Installing phase */}
+              {updatePhase === 'installing' && (
+                <div className="mt-4">
+                  <div className="flex items-center gap-3 text-accent-cyan font-medium mb-2">
+                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Installing update — app will restart automatically...
+                  </div>
+                  <div className="w-full bg-panel rounded-full h-3 overflow-hidden border border-accent-cyan/20">
+                    <div className="h-full bg-gradient-to-r from-accent-cyan to-accent-cyan/70 rounded-full animate-pulse" style={{ width: '100%' }} />
+                  </div>
+                  <p className="text-text-muted text-xs mt-2">Your case data and settings are safe. The application will restart momentarily.</p>
+                </div>
+              )}
+
+              {/* Error message */}
+              {updateError && (
+                <div className="mt-3 p-3 bg-status-error/10 border border-status-error/30 rounded text-status-error text-sm">
+                  {updateError}
+                </div>
+              )}
             </div>
           </div>
 

@@ -224,6 +224,13 @@ interface ElectronAPI {
   securityNewRecovery: () => Promise<{ success: boolean; recoveryKey?: string; error?: string }>;
   securityDisable: () => Promise<{ success: boolean; error?: string }>;
   securityLock: () => Promise<{ success: boolean; error?: string }>;
+
+  // In-App Updater
+  getAppVersion: () => Promise<string>;
+  downloadAppUpdate: (url: string) => Promise<{ success: boolean; installerPath: string }>;
+  installAppUpdate: (installerPath: string) => Promise<{ success: boolean; error?: string }>;
+  onUpdateDownloadProgress: (callback: (data: { percent: number; transferred: number; total: number }) => void) => void;
+  removeUpdateDownloadProgressListener: () => void;
 }
 
 interface Window {

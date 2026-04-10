@@ -445,4 +445,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.SECURITY_DISABLE),
   securityLock: () =>
     ipcRenderer.invoke(IPC_CHANNELS.SECURITY_LOCK),
+
+  // In-App Updater
+  getAppVersion: () =>
+    ipcRenderer.invoke('get-app-version'),
+  downloadAppUpdate: (url: string) =>
+    ipcRenderer.invoke('download-app-update', { url }),
+  installAppUpdate: (installerPath: string) =>
+    ipcRenderer.invoke('install-app-update', { installerPath }),
+  onUpdateDownloadProgress: (callback: (data: { percent: number; transferred: number; total: number }) => void) => {
+    ipcRenderer.on('update-download-progress', (_event, data) => callback(data));
+  },
+  removeUpdateDownloadProgressListener: () => {
+    ipcRenderer.removeAllListeners('update-download-progress');
+  },
 });
