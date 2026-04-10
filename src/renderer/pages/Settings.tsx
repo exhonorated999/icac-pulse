@@ -34,6 +34,20 @@ export function Settings() {
   const [tloHasCredentials, setTloHasCredentials] = useState(false);
   const [showTloPassword, setShowTloPassword] = useState(false);
 
+  // ICAC Cops state
+  const [icaccopsEnabled, setIcaccopsEnabled] = useState(() => localStorage.getItem('icaccopsEnabled') === 'true');
+  const [icaccopsUsername, setIcaccopsUsername] = useState('');
+  const [icaccopsPassword, setIcaccopsPassword] = useState('');
+  const [icaccopsHasCredentials, setIcaccopsHasCredentials] = useState(false);
+  const [showIcaccopsPassword, setShowIcaccopsPassword] = useState(false);
+
+  // GridCop state
+  const [gridcopEnabled, setGridcopEnabled] = useState(() => localStorage.getItem('gridcopEnabled') === 'true');
+  const [gridcopUsername, setGridcopUsername] = useState('');
+  const [gridcopPassword, setGridcopPassword] = useState('');
+  const [gridcopHasCredentials, setGridcopHasCredentials] = useState(false);
+  const [showGridcopPassword, setShowGridcopPassword] = useState(false);
+
   // Password change state
   const [isPortable, setIsPortable] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -79,9 +93,11 @@ export function Settings() {
         setSavedVeriphoneKey(key);
       }
       
-      // Load Flock/TLO credential status
+      // Load credential status for investigative resources
       setFlockHasCredentials(!!(localStorage.getItem('flockEmail')));
       setTloHasCredentials(!!(localStorage.getItem('tloUsername')));
+      setIcaccopsHasCredentials(!!(localStorage.getItem('icaccopsUsername')));
+      setGridcopHasCredentials(!!(localStorage.getItem('gridcopUsername')));
 
       // Check if in portable mode
       const portable = await window.electronAPI.isPortableMode();
@@ -983,6 +999,246 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                       </div>
                       <p className="text-xs text-text-muted leading-relaxed">
                         Credentials are stored locally and used to auto-fill the TLO login form. They are never sent anywhere else.
+                      </p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── ICAC Cops ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">ICAC Cops — Case & Intelligence Portal</h3>
+                      <p className="text-text-muted text-sm">
+                        Access the ICAC Task Force Operations portal directly in the resources drawer. Manage ICAC case data, intelligence sharing, and coordination across task forces. Requires an active ICACCops account.
+                      </p>
+                      <a
+                        href="#"
+                        onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl('https://www.icaccops.com'); }}
+                        className="inline-block mt-1 text-xs text-amber-400 hover:text-amber-300 underline"
+                      >
+                        Register at icaccops.com →
+                      </a>
+                      {icaccopsEnabled && (
+                        <span className="inline-block mt-1 ml-3 text-xs text-amber-400">
+                          {icaccopsHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !icaccopsEnabled;
+                      localStorage.setItem('icaccopsEnabled', String(next));
+                      setIcaccopsEnabled(next);
+                      window.dispatchEvent(new Event('resourceToggle'));
+                    }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
+                      icaccopsEnabled ? 'bg-amber-500' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                      icaccopsEnabled ? 'translate-x-8' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+
+                {icaccopsEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-amber-400 hover:text-amber-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Email / Username</label>
+                        <input
+                          type="text"
+                          placeholder="your.email@agency.gov"
+                          value={icaccopsUsername}
+                          onChange={e => setIcaccopsUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-amber-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input
+                            type={showIcaccopsPassword ? 'text' : 'password'}
+                            placeholder="••••••••"
+                            value={icaccopsPassword}
+                            onChange={e => setIcaccopsPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-amber-500 focus:outline-none pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowIcaccopsPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-amber-400 transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('icaccopsUsername', icaccopsUsername);
+                            localStorage.setItem('icaccopsPassword', icaccopsPassword);
+                            setIcaccopsHasCredentials(true);
+                            setIcaccopsUsername('');
+                            setIcaccopsPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500 rounded-lg text-amber-400 text-xs font-medium transition"
+                        >
+                          Save Credentials
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('icaccopsUsername');
+                            localStorage.removeItem('icaccopsPassword');
+                            setIcaccopsHasCredentials(false);
+                            setIcaccopsUsername('');
+                            setIcaccopsPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">
+                        Credentials are stored locally and used to auto-fill the ICACCops login form. They are never sent anywhere else.
+                      </p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── GridCop ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">GridCop — P2P Investigation Platform</h3>
+                      <p className="text-text-muted text-sm">
+                        Access GridCop's peer-to-peer network investigation platform directly from the resources drawer. Monitor and investigate file-sharing activity across P2P networks for CSAM investigations. Requires an active GridCop account.
+                      </p>
+                      <a
+                        href="#"
+                        onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl('https://www.gridcop.com'); }}
+                        className="inline-block mt-1 text-xs text-emerald-400 hover:text-emerald-300 underline"
+                      >
+                        Register at gridcop.com →
+                      </a>
+                      {gridcopEnabled && (
+                        <span className="inline-block mt-1 ml-3 text-xs text-emerald-400">
+                          {gridcopHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !gridcopEnabled;
+                      localStorage.setItem('gridcopEnabled', String(next));
+                      setGridcopEnabled(next);
+                      window.dispatchEvent(new Event('resourceToggle'));
+                    }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
+                      gridcopEnabled ? 'bg-emerald-500' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                      gridcopEnabled ? 'translate-x-8' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+
+                {gridcopEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-emerald-400 hover:text-emerald-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                        <input
+                          type="text"
+                          placeholder="GridCop username"
+                          value={gridcopUsername}
+                          onChange={e => setGridcopUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input
+                            type={showGridcopPassword ? 'text' : 'password'}
+                            placeholder="••••••••"
+                            value={gridcopPassword}
+                            onChange={e => setGridcopPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-emerald-500 focus:outline-none pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowGridcopPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-emerald-400 transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('gridcopUsername', gridcopUsername);
+                            localStorage.setItem('gridcopPassword', gridcopPassword);
+                            setGridcopHasCredentials(true);
+                            setGridcopUsername('');
+                            setGridcopPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500 rounded-lg text-emerald-400 text-xs font-medium transition"
+                        >
+                          Save Credentials
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('gridcopUsername');
+                            localStorage.removeItem('gridcopPassword');
+                            setGridcopHasCredentials(false);
+                            setGridcopUsername('');
+                            setGridcopPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">
+                        Credentials are stored locally and used to auto-fill the GridCop login form. They are never sent anywhere else.
                       </p>
                     </div>
                   </details>

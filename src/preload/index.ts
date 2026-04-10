@@ -298,6 +298,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tloSetVisible: (visible: boolean) => ipcRenderer.send('tlo-set-visible', visible),
   tloSearchPerson: (params: any) => ipcRenderer.invoke('tlo-search-person', params),
   tloReset: () => ipcRenderer.invoke('tlo-reset'),
+
+  // ICAC Cops
+  icaccopsSetBounds: (bounds: any) => ipcRenderer.send('icaccops-set-bounds', bounds),
+  icaccopsSetVisible: (visible: boolean) => ipcRenderer.send('icaccops-set-visible', visible),
+  icaccopsReset: () => ipcRenderer.invoke('icaccops-reset'),
+
+  // GridCop
+  gridcopSetBounds: (bounds: any) => ipcRenderer.send('gridcop-set-bounds', bounds),
+  gridcopSetVisible: (visible: boolean) => ipcRenderer.send('gridcop-set-visible', visible),
+  gridcopReset: () => ipcRenderer.invoke('gridcop-reset'),
   saveChatHighlights: (evidenceId: number, highlights: any[]) =>
     ipcRenderer.invoke('save-chat-highlights', evidenceId, highlights),
   loadChatHighlights: (evidenceId: number) =>

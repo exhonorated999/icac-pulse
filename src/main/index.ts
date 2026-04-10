@@ -26,6 +26,16 @@ let tloBrowserView: BrowserView | null = null;
 let tloViewVisible = false;
 let lastTloBounds: { x: number; y: number; width: number; height: number } | null = null;
 
+// ICAC Cops BrowserView
+let icaccopsBrowserView: BrowserView | null = null;
+let icaccopsViewVisible = false;
+let lastIcaccopsBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+// GridCop BrowserView
+let gridcopBrowserView: BrowserView | null = null;
+let gridcopViewVisible = false;
+let lastGridcopBounds: { x: number; y: number; width: number; height: number } | null = null;
+
 
 
 // Load secrets from file into environment at startup
@@ -163,10 +173,92 @@ function createWindow() {
     }
   });
 
+  // ── ICAC Cops BrowserView ──
+  icaccopsBrowserView = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      partition: 'persist:icaccops',
+    },
+  });
+  mainWindow.addBrowserView(icaccopsBrowserView);
+  icaccopsBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  icaccopsBrowserView.setAutoResize({ width: false, height: false });
+  icaccopsBrowserView.webContents.on('did-finish-load', () => {
+    if (!icaccopsViewVisible && mainWindow) mainWindow.webContents.focus();
+    icaccopsBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    // Auto-fill credentials on ICACCops login page
+    const url = icaccopsBrowserView!.webContents.getURL();
+    if (url.includes('icaccops.com') && (url.includes('login') || url.includes('Login') || url.includes('users'))) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ username: localStorage.getItem('icaccopsUsername') || '', password: localStorage.getItem('icaccopsPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.username || creds.password) {
+          icaccopsBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="Username"],input[name="username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="Email"],input[name="Email"]');
+                const passInput=document.querySelector('input[name="Password"],input[name="password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.username)});setVal(passInput,${JSON.stringify(creds.password)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
+  // ── GridCop BrowserView ──
+  gridcopBrowserView = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      partition: 'persist:gridcop',
+    },
+  });
+  mainWindow.addBrowserView(gridcopBrowserView);
+  gridcopBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  gridcopBrowserView.setAutoResize({ width: false, height: false });
+  gridcopBrowserView.webContents.on('did-finish-load', () => {
+    if (!gridcopViewVisible && mainWindow) mainWindow.webContents.focus();
+    gridcopBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    // Auto-fill credentials on GridCop login page
+    const url = gridcopBrowserView!.webContents.getURL();
+    if (url.includes('gridcop.com') && (url.includes('login') || url.includes('Login') || url.includes('cb-login'))) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ username: localStorage.getItem('gridcopUsername') || '', password: localStorage.getItem('gridcopPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.username || creds.password) {
+          gridcopBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="Username"],input[name="username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="Email"],input[name="Email"]');
+                const passInput=document.querySelector('input[name="Password"],input[name="password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.username)});setVal(passInput,${JSON.stringify(creds.password)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
   // Reposition BrowserViews on window resize
   mainWindow.on('resize', () => {
     if (flockViewVisible && lastFlockBounds && flockBrowserView) flockBrowserView.setBounds(lastFlockBounds);
     if (tloViewVisible && lastTloBounds && tloBrowserView) tloBrowserView.setBounds(lastTloBounds);
+    if (icaccopsViewVisible && lastIcaccopsBounds && icaccopsBrowserView) icaccopsBrowserView.setBounds(lastIcaccopsBounds);
+    if (gridcopViewVisible && lastGridcopBounds && gridcopBrowserView) gridcopBrowserView.setBounds(lastGridcopBounds);
   });
 
   // Grant permissions for both default session and the media player partition
@@ -4323,6 +4415,64 @@ ${data.content}
     const ses = tloBrowserView.webContents.session;
     await ses.clearStorageData();
     tloBrowserView.webContents.loadURL('https://tloxp.tlo.com/');
+  });
+
+  /* ── ICAC Cops IPC ──────────────────────────────────────── */
+  ipcMain.on('icaccops-set-bounds', (_event: any, bounds: any) => {
+    if (!icaccopsBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastIcaccopsBounds = b;
+    if (icaccopsViewVisible) icaccopsBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('icaccops-set-visible', (_event: any, visible: boolean) => {
+    if (!icaccopsBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    icaccopsViewVisible = visible;
+    if (visible && lastIcaccopsBounds) {
+      const currentUrl = icaccopsBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        icaccopsBrowserView.webContents.loadURL('https://www.icaccops.com/users?ReturnUrl=%2Fusers%2Fhome');
+      }
+      icaccopsBrowserView.setBounds(lastIcaccopsBounds);
+    } else if (!visible) {
+      icaccopsBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('icaccops-reset', async () => {
+    if (!icaccopsBrowserView) return;
+    const ses = icaccopsBrowserView.webContents.session;
+    await ses.clearStorageData();
+    icaccopsBrowserView.webContents.loadURL('https://www.icaccops.com/users?ReturnUrl=%2Fusers%2Fhome');
+  });
+
+  /* ── GridCop IPC ────────────────────────────────────────── */
+  ipcMain.on('gridcop-set-bounds', (_event: any, bounds: any) => {
+    if (!gridcopBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastGridcopBounds = b;
+    if (gridcopViewVisible) gridcopBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('gridcop-set-visible', (_event: any, visible: boolean) => {
+    if (!gridcopBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    gridcopViewVisible = visible;
+    if (visible && lastGridcopBounds) {
+      const currentUrl = gridcopBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        gridcopBrowserView.webContents.loadURL('https://www.gridcop.com/cb-login');
+      }
+      gridcopBrowserView.setBounds(lastGridcopBounds);
+    } else if (!visible) {
+      gridcopBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('gridcop-reset', async () => {
+    if (!gridcopBrowserView) return;
+    const ses = gridcopBrowserView.webContents.session;
+    await ses.clearStorageData();
+    gridcopBrowserView.webContents.loadURL('https://www.gridcop.com/cb-login');
   });
 
   ipcMain.handle('open-chat-viewer', async (_event, data: { filePath: string; title: string; evidenceId: number }) => {

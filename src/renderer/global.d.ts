@@ -87,6 +87,16 @@ interface ElectronAPI {
   tloSetVisible: (visible: boolean) => void;
   tloSearchPerson: (params: { firstName?: string; lastName?: string; state?: string }) => Promise<{ success: boolean; error?: string }>;
   tloReset: () => Promise<void>;
+
+  // ICAC Cops
+  icaccopsSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  icaccopsSetVisible: (visible: boolean) => void;
+  icaccopsReset: () => Promise<void>;
+
+  // GridCop
+  gridcopSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  gridcopSetVisible: (visible: boolean) => void;
+  gridcopReset: () => Promise<void>;
   
   // Warrants
   addWarrant: (data: any) => Promise<{ success: boolean; error?: string }>;

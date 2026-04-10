@@ -30,6 +30,24 @@ const RESOURCES: Resource[] = [
       </svg>
     ),
   },
+  {
+    id: 'icaccops', label: 'ICAC Cops', enabledKey: 'icaccopsEnabled', isBV: true,
+    accent: 'amber', accentHex: '#fbbf24',
+    icon: (
+      <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'gridcop', label: 'GridCop', enabledKey: 'gridcopEnabled', isBV: true,
+    accent: 'emerald', accentHex: '#34d399',
+    icon: (
+      <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
 ];
 
 /* ── Component ─────────────────────────────────────────────── */
@@ -41,6 +59,8 @@ export function ResourceDrawer() {
 
   const flockRef = useRef<HTMLDivElement>(null);
   const tloRef = useRef<HTMLDivElement>(null);
+  const icaccopsRef = useRef<HTMLDivElement>(null);
+  const gridcopRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
 
   /* ── Watch localStorage for toggle changes ─────────────── */
@@ -66,21 +86,35 @@ export function ResourceDrawer() {
   }, [refreshEnabled]);
 
   /* ── BrowserView positioning ───────────────────────────── */
+  const refMap: Record<string, React.RefObject<HTMLDivElement>> = {
+    flock: flockRef, tlo: tloRef, icaccops: icaccopsRef, gridcop: gridcopRef,
+  };
+  const setBoundsFns: Record<string, (b: any) => void> = window.electronAPI ? {
+    flock: window.electronAPI.flockSetBounds,
+    tlo: window.electronAPI.tloSetBounds,
+    icaccops: window.electronAPI.icaccopsSetBounds,
+    gridcop: window.electronAPI.gridcopSetBounds,
+  } : {};
+  const setVisibleFns: Record<string, (v: boolean) => void> = window.electronAPI ? {
+    flock: window.electronAPI.flockSetVisible,
+    tlo: window.electronAPI.tloSetVisible,
+    icaccops: window.electronAPI.icaccopsSetVisible,
+    gridcop: window.electronAPI.gridcopSetVisible,
+  } : {};
+
   const positionBV = useCallback((resId: string) => {
-    const ref = resId === 'flock' ? flockRef : tloRef;
-    const el = ref.current;
+    const el = refMap[resId]?.current;
     if (!el || !window.electronAPI) return;
     const r = el.getBoundingClientRect();
     const b = { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     if (b.width < 10 || b.height < 10) return;
-    if (resId === 'flock') { window.electronAPI.flockSetBounds(b); window.electronAPI.flockSetVisible(true); }
-    if (resId === 'tlo')   { window.electronAPI.tloSetBounds(b);   window.electronAPI.tloSetVisible(true); }
+    setBoundsFns[resId]?.(b);
+    setVisibleFns[resId]?.(true);
   }, []);
 
   const hideBV = useCallback((resId: string) => {
     if (!window.electronAPI) return;
-    if (resId === 'flock') window.electronAPI.flockSetVisible(false);
-    if (resId === 'tlo')   window.electronAPI.tloSetVisible(false);
+    setVisibleFns[resId]?.(false);
   }, []);
 
   const hideAllBVs = useCallback(() => {
@@ -163,32 +197,33 @@ export function ResourceDrawer() {
       {/* ═══ FAB Button ═══ */}
       <button
         onClick={handleToggle}
-        className="fixed z-[9998] w-12 h-12 rounded-xl flex items-center justify-center text-accent-cyan"
+        className="fixed z-[9998] w-12 h-12 rounded-xl flex items-center justify-center"
         style={{
           bottom: 24, right: 24,
-          background: 'rgba(0,210,211,0.12)',
-          border: '1px solid rgba(0,210,211,0.30)',
+          background: 'rgba(255,140,0,0.15)',
+          border: '1.5px solid rgba(255,140,0,0.6)',
+          color: '#ff8c00',
           backdropFilter: 'blur(8px)',
           animation: 'rhGlow 3s ease-in-out infinite',
           transition: 'transform 0.2s, box-shadow 0.2s',
         }}
         title="Investigative Resources"
         onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'scale(1.05)';
-          e.currentTarget.style.boxShadow = '0 0 28px rgba(0,210,211,0.45), 0 0 8px rgba(0,210,211,0.25)';
+          e.currentTarget.style.transform = 'scale(1.1)';
+          e.currentTarget.style.boxShadow = '0 0 32px rgba(255,140,0,0.55), 0 0 12px rgba(255,140,0,0.3)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = '';
           e.currentTarget.style.boxShadow = '';
         }}
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         {enabledResources.length > 1 && (
           <span
-            className="absolute -top-1.5 -right-1.5 rounded-full bg-accent-cyan text-background font-bold flex items-center justify-center border-2 border-background"
-            style={{ width: 18, height: 18, fontSize: 10, animation: 'rhPulse 2s infinite' }}
+            className="absolute -top-1.5 -right-1.5 rounded-full font-bold flex items-center justify-center border-2 border-background"
+            style={{ width: 18, height: 18, fontSize: 10, background: '#ff8c00', color: '#0B1120', animation: 'rhPulse 2s infinite' }}
           >
             {enabledResources.length}
           </span>
@@ -296,6 +331,40 @@ export function ResourceDrawer() {
                 <p className="text-gray-600 text-xs">Loading TLO / TransUnion…</p>
               </div>
             </div>
+
+            {/* ICAC Cops BrowserView placeholder */}
+            <div
+              className={`absolute inset-0 ${activeTab === 'icaccops' ? '' : 'hidden'}`}
+            >
+              <div
+                ref={icaccopsRef}
+                className="w-full h-full flex items-center justify-center"
+                style={{
+                  background: 'rgba(10,15,28,0.5)',
+                  border: '1px dashed rgba(255,255,255,0.08)',
+                  borderRadius: 8,
+                }}
+              >
+                <p className="text-gray-600 text-xs">Loading ICAC Cops…</p>
+              </div>
+            </div>
+
+            {/* GridCop BrowserView placeholder */}
+            <div
+              className={`absolute inset-0 ${activeTab === 'gridcop' ? '' : 'hidden'}`}
+            >
+              <div
+                ref={gridcopRef}
+                className="w-full h-full flex items-center justify-center"
+                style={{
+                  background: 'rgba(10,15,28,0.5)',
+                  border: '1px dashed rgba(255,255,255,0.08)',
+                  borderRadius: 8,
+                }}
+              >
+                <p className="text-gray-600 text-xs">Loading GridCop…</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -303,8 +372,8 @@ export function ResourceDrawer() {
       {/* ═══ Keyframe animations ═══ */}
       <style>{`
         @keyframes rhGlow {
-          0%, 100% { box-shadow: 0 0 12px rgba(0,210,211,0.25), inset 0 0 8px rgba(0,210,211,0.08); }
-          50% { box-shadow: 0 0 18px rgba(0,210,211,0.35), inset 0 0 12px rgba(0,210,211,0.12); }
+          0%, 100% { box-shadow: 0 0 14px rgba(255,140,0,0.3), inset 0 0 8px rgba(255,140,0,0.08); }
+          50% { box-shadow: 0 0 22px rgba(255,140,0,0.45), inset 0 0 12px rgba(255,140,0,0.15); }
         }
         @keyframes rhPulse {
           0%, 100% { opacity: 1; }
