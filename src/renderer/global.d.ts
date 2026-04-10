@@ -75,6 +75,18 @@ interface ElectronAPI {
   openChatViewer: (data: { filePath: string; title: string; evidenceId: number }) => Promise<void>;
   saveChatHighlights: (evidenceId: number, highlights: any[]) => Promise<{ success: boolean }>;
   loadChatHighlights: (evidenceId: number) => Promise<any[]>;
+
+  // Flock Safety
+  flockSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  flockSetVisible: (visible: boolean) => void;
+  flockSearchPlate: (params: { plate: string; state?: string }) => Promise<{ success: boolean; error?: string }>;
+  flockReset: () => Promise<void>;
+
+  // TLO / TransUnion
+  tloSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  tloSetVisible: (visible: boolean) => void;
+  tloSearchPerson: (params: { firstName?: string; lastName?: string; state?: string }) => Promise<{ success: boolean; error?: string }>;
+  tloReset: () => Promise<void>;
   
   // Warrants
   addWarrant: (data: any) => Promise<{ success: boolean; error?: string }>;

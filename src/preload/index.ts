@@ -286,6 +286,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('read-file-snippet', relativePath, bytes),
   openChatViewer: (data: { filePath: string; title: string; evidenceId: number }) =>
     ipcRenderer.invoke('open-chat-viewer', data),
+
+  // Flock Safety
+  flockSetBounds: (bounds: any) => ipcRenderer.send('flock-set-bounds', bounds),
+  flockSetVisible: (visible: boolean) => ipcRenderer.send('flock-set-visible', visible),
+  flockSearchPlate: (params: any) => ipcRenderer.invoke('flock-search-plate', params),
+  flockReset: () => ipcRenderer.invoke('flock-reset'),
+
+  // TLO / TransUnion
+  tloSetBounds: (bounds: any) => ipcRenderer.send('tlo-set-bounds', bounds),
+  tloSetVisible: (visible: boolean) => ipcRenderer.send('tlo-set-visible', visible),
+  tloSearchPerson: (params: any) => ipcRenderer.invoke('tlo-search-person', params),
+  tloReset: () => ipcRenderer.invoke('tlo-reset'),
   saveChatHighlights: (evidenceId: number, highlights: any[]) =>
     ipcRenderer.invoke('save-chat-highlights', evidenceId, highlights),
   loadChatHighlights: (evidenceId: number) =>

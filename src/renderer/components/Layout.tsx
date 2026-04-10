@@ -4,6 +4,7 @@ import { Logo } from './Logo';
 import { AllCasesIcon, SettingsIcon } from './DashboardIcons';
 import { ThemeToggle } from './ThemeToggle';
 import { MediaPlayer } from './MediaPlayer';
+import { ResourceDrawer } from './ResourceDrawer';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -333,6 +334,9 @@ export function Layout({ children, user }: LayoutProps) {
       <main className="flex-1 overflow-auto">
         {children}
       </main>
+
+      {/* Investigative Resources Drawer */}
+      <ResourceDrawer />
     </div>
   );
 }

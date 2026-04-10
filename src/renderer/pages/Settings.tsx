@@ -20,6 +20,20 @@ export function Settings() {
   const [savedVeriphoneKey, setSavedVeriphoneKey] = useState('');
   const [veriphoneEnabled, setVeriphoneEnabled] = useState(false);
   
+  // Flock Safety state
+  const [flockEnabled, setFlockEnabled] = useState(() => localStorage.getItem('flockEnabled') === 'true');
+  const [flockEmail, setFlockEmail] = useState('');
+  const [flockPassword, setFlockPassword] = useState('');
+  const [flockHasCredentials, setFlockHasCredentials] = useState(false);
+  const [showFlockPassword, setShowFlockPassword] = useState(false);
+
+  // TLO / TransUnion state
+  const [tloEnabled, setTloEnabled] = useState(() => localStorage.getItem('tloEnabled') === 'true');
+  const [tloUsername, setTloUsername] = useState('');
+  const [tloPassword, setTloPassword] = useState('');
+  const [tloHasCredentials, setTloHasCredentials] = useState(false);
+  const [showTloPassword, setShowTloPassword] = useState(false);
+
   // Password change state
   const [isPortable, setIsPortable] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -65,6 +79,10 @@ export function Settings() {
         setSavedVeriphoneKey(key);
       }
       
+      // Load Flock/TLO credential status
+      setFlockHasCredentials(!!(localStorage.getItem('flockEmail')));
+      setTloHasCredentials(!!(localStorage.getItem('tloUsername')));
+
       // Check if in portable mode
       const portable = await window.electronAPI.isPortableMode();
       setIsPortable(portable);
@@ -729,6 +747,247 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                   mediaEnabled ? 'translate-x-8' : 'translate-x-1'
                 }`} />
               </button>
+            </div>
+          </div>
+
+          {/* ═══════════════ Investigative Resources ═══════════════ */}
+          <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
+            <h2 className="text-xl font-bold text-text-primary mb-2 flex items-center gap-2">
+              <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Investigative Resources
+            </h2>
+            <p className="text-text-muted text-sm mb-5">
+              Enable external investigative platforms. When enabled, a magnifying glass button appears in the lower-right corner of the app — click it to open the resources drawer.
+            </p>
+
+            <div className="space-y-4">
+              {/* ── Flock Safety ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">Flock Safety — LPR Search</h3>
+                      <p className="text-text-muted text-sm">
+                        Search Flock Safety's license plate reader (LPR) network directly from the resources drawer. Run plates from suspect vehicles to get sighting history, locations, and timestamps. Requires an active Flock Safety account — you'll log in once and your session persists.
+                      </p>
+                      {flockEnabled && (
+                        <span className="inline-block mt-1 text-xs text-teal-400">
+                          {flockHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !flockEnabled;
+                      localStorage.setItem('flockEnabled', String(next));
+                      setFlockEnabled(next);
+                      window.dispatchEvent(new Event('resourceToggle'));
+                    }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
+                      flockEnabled ? 'bg-teal-500' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                      flockEnabled ? 'translate-x-8' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+
+                {flockEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-teal-400 hover:text-teal-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-teal-500/5 border border-teal-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Email</label>
+                        <input
+                          type="email"
+                          placeholder="your.email@agency.gov"
+                          value={flockEmail}
+                          onChange={e => setFlockEmail(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-teal-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input
+                            type={showFlockPassword ? 'text' : 'password'}
+                            placeholder="••••••••"
+                            value={flockPassword}
+                            onChange={e => setFlockPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-teal-500 focus:outline-none pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowFlockPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-teal-400 transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('flockEmail', flockEmail);
+                            localStorage.setItem('flockPassword', flockPassword);
+                            setFlockHasCredentials(true);
+                            setFlockEmail('');
+                            setFlockPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500 rounded-lg text-teal-400 text-xs font-medium transition"
+                        >
+                          Save Credentials
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('flockEmail');
+                            localStorage.removeItem('flockPassword');
+                            setFlockHasCredentials(false);
+                            setFlockEmail('');
+                            setFlockPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">
+                        Credentials are stored locally and used to auto-fill the Flock login form. They are never sent anywhere else.
+                      </p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── TLO / TransUnion ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">TLO — TransUnion People Search</h3>
+                      <p className="text-text-muted text-sm">
+                        Search TLO's comprehensive people database directly from the resources drawer. Look up individuals by name for addresses, phone numbers, associates, assets, and more. Requires an active TLOxp account.
+                      </p>
+                      {tloEnabled && (
+                        <span className="inline-block mt-1 text-xs text-indigo-400">
+                          {tloHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !tloEnabled;
+                      localStorage.setItem('tloEnabled', String(next));
+                      setTloEnabled(next);
+                      window.dispatchEvent(new Event('resourceToggle'));
+                    }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${
+                      tloEnabled ? 'bg-indigo-500' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                      tloEnabled ? 'translate-x-8' : 'translate-x-1'
+                    }`} />
+                  </button>
+                </div>
+
+                {tloEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-indigo-400 hover:text-indigo-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-indigo-500/5 border border-indigo-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Username</label>
+                        <input
+                          type="text"
+                          placeholder="TLOxp username"
+                          value={tloUsername}
+                          onChange={e => setTloUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input
+                            type={showTloPassword ? 'text' : 'password'}
+                            placeholder="••••••••"
+                            value={tloPassword}
+                            onChange={e => setTloPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-indigo-500 focus:outline-none pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowTloPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-indigo-400 transition"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('tloUsername', tloUsername);
+                            localStorage.setItem('tloPassword', tloPassword);
+                            setTloHasCredentials(true);
+                            setTloUsername('');
+                            setTloPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500 rounded-lg text-indigo-400 text-xs font-medium transition"
+                        >
+                          Save Credentials
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('tloUsername');
+                            localStorage.removeItem('tloPassword');
+                            setTloHasCredentials(false);
+                            setTloUsername('');
+                            setTloPassword('');
+                          }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">
+                        Credentials are stored locally and used to auto-fill the TLO login form. They are never sent anywhere else.
+                      </p>
+                    </div>
+                  </details>
+                )}
+              </div>
             </div>
           </div>
 
