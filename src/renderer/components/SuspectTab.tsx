@@ -34,6 +34,10 @@ interface Suspect {
   vehicle_model?: string;
   vehicle_color?: string;
   has_weapons?: boolean;
+  firearms_info?: string;
+  firearms_pdf_path?: string;
+  criminal_history?: string;
+  criminal_history_pdf_path?: string;
   latitude?: number;
   longitude?: number;
   geocoded_date?: string;
@@ -62,6 +66,8 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
   
   const [exporting, setExporting] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [firearmsMode, setFirearmsMode] = useState<'manual' | 'pdf'>('manual');
+  const [crimHistoryMode, setCrimHistoryMode] = useState<'manual' | 'pdf'>('manual');
   
   const [formData, setFormData] = useState<Partial<Suspect>>({
     first_name: '',
@@ -79,6 +85,10 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
     vehicle_model: '',
     vehicle_color: '',
     has_weapons: false,
+    firearms_info: '',
+    firearms_pdf_path: '',
+    criminal_history: '',
+    criminal_history_pdf_path: '',
   });
 
   useEffect(() => {
@@ -173,6 +183,8 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
       if (suspectData) {
         setSuspect(suspectData);
         setFormData(suspectData);
+        if (suspectData.firearms_pdf_path) setFirearmsMode('pdf');
+        if (suspectData.criminal_history_pdf_path) setCrimHistoryMode('pdf');
         
         // Load photos
         console.log('Loading photos for suspect ID:', suspectData.id);
@@ -355,6 +367,31 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
       </div>
     );
   }
+
+  const handleUploadRecordPdf = async (field: 'firearms_pdf_path' | 'criminal_history_pdf_path', category: string, title: string) => {
+    try {
+      const result = await window.electronAPI.openFileDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+        title
+      });
+      if (result.canceled || !result.filePaths?.length) return;
+      const uploadResult = await window.electronAPI.uploadCaseFile({
+        caseNumber, category, sourcePath: result.filePaths[0], filename: result.filePaths[0].split(/[\\/]/).pop(),
+      });
+      const updated = { ...formData, [field]: uploadResult.relativePath };
+      setFormData(updated);
+      // Auto-save
+      if (suspect?.id) {
+        await window.electronAPI.saveSuspect({ ...updated, case_id: caseId });
+        setSuspect(prev => prev ? { ...prev, [field]: uploadResult.relativePath } : prev);
+      }
+      showToast?.('PDF uploaded', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast?.('Failed to upload PDF', 'error');
+    }
+  };
 
   const suspectPhotos = photos.filter(p => p.photo_type === 'suspect');
   const vehiclePhotos = photos.filter(p => p.photo_type === 'vehicle');
@@ -612,39 +649,38 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
         </div>
       </div>
 
-      {/* ── Residence Card ─────────────────────────────────────────── */}
-      <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
-        <h3 className="text-base font-semibold text-accent-cyan mb-5">Residence</h3>
+      {/* ── Residence + Vehicle — side by side ──────────────────── */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* ── Residence Card ─────── */}
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+          <h3 className="text-base font-semibold text-accent-cyan mb-4">Residence</h3>
 
-        {/* Address row */}
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-text-muted mb-1">Address</label>
+          {/* Address */}
+          <div className="mb-3">
+            <label className="block text-xs font-medium text-text-muted mb-1">Address</label>
             {editMode ? (
               <textarea value={formData.address || ''}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 rows={2}
-                className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                         text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
+                className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                         text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
             ) : (
-              <p className="text-text-primary text-base">{suspect?.address || 'N/A'}</p>
+              <p className="text-text-primary text-sm">{suspect?.address || 'N/A'}</p>
+            )}
+            {suspect?.address && !editMode && (
+              <button onClick={handleGeocodeAddress} disabled={geocoding}
+                className={`mt-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  geocoding ? 'bg-accent-cyan/50 text-background cursor-not-allowed'
+                            : 'bg-accent-cyan text-background hover:bg-accent-cyan/90'}`}>
+                {geocoding ? 'Geocoding...' : suspect?.latitude ? 'Update Location' : 'Geocode'}
+              </button>
             )}
           </div>
-          {suspect?.address && !editMode && (
-            <button onClick={handleGeocodeAddress} disabled={geocoding}
-              className={`mt-5 flex-shrink-0 px-3 py-1.5 rounded-lg transition-colors text-xs font-medium ${
-                geocoding ? 'bg-accent-cyan/50 text-background cursor-not-allowed'
-                          : 'bg-accent-cyan text-background hover:bg-accent-cyan/90'}`}>
-              {geocoding ? 'Geocoding...' : suspect?.latitude ? 'Update Location' : 'Geocode Location'}
-            </button>
-          )}
-        </div>
 
-        {/* Map + first residence photo side-by-side */}
-        {suspect?.latitude && suspect?.longitude && !editMode && (
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <div className="h-56 rounded-lg overflow-hidden border border-accent-cyan/20">
+          {/* Map (stacked vertically) */}
+          {suspect?.latitude && suspect?.longitude && !editMode && (
+            <div className="mb-3">
+              <div className="h-40 rounded-lg overflow-hidden border border-accent-cyan/20">
                 <MapContainer
                   center={[suspect.latitude, suspect.longitude]}
                   zoom={16}
@@ -657,7 +693,7 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
                   />
                   <Marker position={[suspect.latitude, suspect.longitude]}>
                     <Popup>
-                      <div className="text-sm">
+                      <div className="text-xs">
                         <strong>Suspect Residence</strong><br />{suspect.address}
                       </div>
                     </Popup>
@@ -668,233 +704,324 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
                 {suspect.latitude.toFixed(6)}, {suspect.longitude.toFixed(6)}
               </p>
             </div>
-            <div className="relative group h-56">
-              {residencePhotos.length > 0 ? (
-                <>
-                  <div className="h-full bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
-                    <img
-                      src={`icac-case-file://${residencePhotos[0].photo_path}`}
-                      alt="Residence"
-                      className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => window.electronAPI.openFileLocation(residencePhotos[0].photo_path)}
-                    />
-                  </div>
-                  <button onClick={() => handleDeletePhoto(residencePhotos[0].id)}
-                    className="absolute top-2 right-2 p-1.5 bg-accent-pink rounded-lg opacity-0 group-hover:opacity-100 
-                             transition-opacity hover:bg-accent-pink/80">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </>
-              ) : (
-                <div className="h-full bg-background rounded-lg border-2 border-dashed border-accent-cyan/20 
-                                flex flex-col items-center justify-center gap-2">
-                  <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-                          d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                  </svg>
-                  <span className="text-xs text-text-muted">No residence photo</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Residence photos row + upload */}
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-text-muted">Residence Photos</span>
-          <button onClick={() => handleUploadPhoto('residence')}
-            className="px-3 py-1.5 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs 
-                       rounded-lg hover:bg-accent-cyan/20 transition-colors">
-            + Upload
-          </button>
-        </div>
-        {residencePhotos.length === 0 ? (
-          <div className="bg-background rounded-lg p-3 border border-dashed border-accent-cyan/20 text-center">
-            <p className="text-text-muted text-xs italic">No residence photos uploaded</p>
-          </div>
-        ) : residencePhotos.length === 1 ? (
-          <div className="bg-background rounded-lg p-3 border border-dashed border-accent-cyan/20 text-center">
-            <p className="text-text-muted text-xs italic">Upload additional photos to see them here</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-6 gap-2">
-            {residencePhotos.slice(1).map((photo) => (
-              <div key={photo.id} className="relative group aspect-square bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
-                <img
-                  src={`icac-case-file://${photo.photo_path}`}
-                  alt="Residence"
-                  className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => window.electronAPI.openFileLocation(photo.photo_path)}
-                />
-                <button onClick={() => handleDeletePhoto(photo.id)}
-                  className="absolute top-1 right-1 p-1 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                  <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Place of Work */}
-        <div className="mt-5 pt-4 border-t border-accent-cyan/10">
-          <label className="block text-sm font-medium text-text-muted mb-1">Place of Work</label>
-          {editMode ? (
-            <input type="text" value={formData.place_of_work || formData.workplace || ''}
-              onChange={(e) => setFormData({ ...formData, place_of_work: e.target.value })}
-              className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                       text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-          ) : (
-            <p className="text-text-primary text-base">{suspect?.place_of_work || suspect?.workplace || 'N/A'}</p>
           )}
-        </div>
-      </div>
 
-      {/* Vehicle Information */}
-      <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
-        <h3 className="text-xl font-bold text-text-primary mb-4">Vehicle Information</h3>
-        
-        {/* Main Content: Photo on Left, Details on Right */}
-        <div className="flex gap-6 mb-6">
-          {/* Vehicle Photo Section */}
-          <div className="flex-shrink-0" style={{ width: '360px' }}>
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-lg font-semibold text-text-primary">Vehicle Photos</h4>
-              <button
-                onClick={() => handleUploadPhoto('vehicle')}
-                className="px-3 py-1.5 bg-accent-cyan text-background text-sm rounded-lg 
-                         hover:bg-accent-cyan/90 transition-colors"
-              >
-                + Upload Photo
-              </button>
+          {/* Residence photos */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-text-muted">Residence Photos</span>
+            <button onClick={() => handleUploadPhoto('residence')}
+              className="px-2 py-1 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs 
+                         rounded hover:bg-accent-cyan/20 transition-colors">
+              + Upload
+            </button>
+          </div>
+          {residencePhotos.length === 0 ? (
+            <div className="bg-background rounded-lg p-3 border border-dashed border-accent-cyan/20 text-center">
+              <p className="text-text-muted text-xs italic">No residence photos</p>
             </div>
-            {vehiclePhotos.length === 0 ? (
-              <div className="bg-accent-pink/10 rounded p-4 border border-accent-pink/30">
-                <p className="text-accent-pink italic text-sm">No vehicle photos uploaded</p>
-              </div>
-            ) : (
-              <div className="relative group">
-                <div className="aspect-square bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {residencePhotos.map((photo) => (
+                <div key={photo.id} className="relative group aspect-square bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
                   <img
-                    src={`icac-case-file://${vehiclePhotos[0].photo_path}`}
-                    alt="Vehicle"
+                    src={`icac-case-file://${photo.photo_path}`}
+                    alt="Residence"
                     className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => window.electronAPI.openFileLocation(vehiclePhotos[0].photo_path)}
+                    onClick={() => window.electronAPI.openFileLocation(photo.photo_path)}
                   />
-                </div>
-                <button
-                  onClick={() => handleDeletePhoto(vehiclePhotos[0].id)}
-                  className="absolute top-2 right-2 p-1.5 bg-accent-pink rounded-lg opacity-0 group-hover:opacity-100 
-                           transition-opacity hover:bg-accent-pink/80"
-                >
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Vehicle Details Section */}
-          <div className="flex-1 grid grid-cols-2 gap-6 content-start">
-            <div>
-              <label className="block text-base font-medium text-text-muted mb-2">Make</label>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={formData.vehicle_make || ''}
-                  onChange={(e) => setFormData({ ...formData, vehicle_make: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan"
-                  placeholder="e.g., Toyota"
-                />
-              ) : (
-                <p className="text-text-primary text-base">{suspect?.vehicle_make || 'N/A'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-base font-medium text-text-muted mb-2">Model</label>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={formData.vehicle_model || ''}
-                  onChange={(e) => setFormData({ ...formData, vehicle_model: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan"
-                  placeholder="e.g., Camry"
-                />
-              ) : (
-                <p className="text-text-primary text-base">{suspect?.vehicle_model || 'N/A'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-base font-medium text-text-muted mb-2">Color</label>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={formData.vehicle_color || ''}
-                  onChange={(e) => setFormData({ ...formData, vehicle_color: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan"
-                  placeholder="e.g., Silver"
-                />
-              ) : (
-                <p className="text-text-primary text-base">{suspect?.vehicle_color || 'N/A'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-base font-medium text-text-muted mb-2">License Plate</label>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={formData.license_plate || ''}
-                  onChange={(e) => setFormData({ ...formData, license_plate: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan uppercase"
-                  placeholder="e.g., ABC1234"
-                />
-              ) : (
-                <p className="text-text-primary text-base uppercase">{suspect?.license_plate || 'N/A'}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Vehicle Photos Grid (if more than one photo) */}
-        {vehiclePhotos.length > 1 && (
-          <div>
-            <h4 className="text-sm font-medium text-text-muted mb-3">Additional Photos</h4>
-            <div className="grid grid-cols-4 gap-4">
-              {vehiclePhotos.slice(1).map((photo) => (
-                <div key={photo.id} className="relative group">
-                  <div className="aspect-square bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
-                    <img
-                      src={`icac-case-file://${photo.photo_path}`}
-                      alt="Vehicle"
-                      className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => window.electronAPI.openFileLocation(photo.photo_path)}
-                    />
-                  </div>
-                  <button
-                    onClick={() => handleDeletePhoto(photo.id)}
-                    className="absolute top-2 right-2 p-1.5 bg-accent-pink rounded-lg opacity-0 group-hover:opacity-100 
-                             transition-opacity hover:bg-accent-pink/80"
-                  >
-                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <button onClick={() => handleDeletePhoto(photo.id)}
+                    className="absolute top-1 right-1 p-1 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Place of Work */}
+          <div className="mt-4 pt-3 border-t border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-1">Place of Work</label>
+            {editMode ? (
+              <input type="text" value={formData.place_of_work || formData.workplace || ''}
+                onChange={(e) => setFormData({ ...formData, place_of_work: e.target.value })}
+                className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                         text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+            ) : (
+              <p className="text-text-primary text-sm">{suspect?.place_of_work || suspect?.workplace || 'N/A'}</p>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* ── Vehicle Card ─────── */}
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-accent-cyan">Vehicle</h3>
+            <button onClick={() => handleUploadPhoto('vehicle')}
+              className="px-2 py-1 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs 
+                         rounded hover:bg-accent-cyan/20 transition-colors">
+              + Upload Photo
+            </button>
+          </div>
+
+          {/* Vehicle photo */}
+          {vehiclePhotos.length === 0 ? (
+            <div className="bg-background rounded-lg p-4 border border-dashed border-accent-cyan/20 text-center mb-4">
+              <svg className="w-8 h-8 text-text-muted mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M8 17h.01M16 17h.01M3 11l1.5-5A2 2 0 016.4 4h11.2a2 2 0 011.9 1.4L21 11M3 11v6a1 1 0 001 1h1m16-7v6a1 1 0 01-1 1h-1M3 11h18" />
+              </svg>
+              <p className="text-text-muted text-xs italic">No vehicle photos</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {vehiclePhotos.map((photo) => (
+                <div key={photo.id} className="relative group aspect-square bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
+                  <img
+                    src={`icac-case-file://${photo.photo_path}`}
+                    alt="Vehicle"
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => window.electronAPI.openFileLocation(photo.photo_path)}
+                  />
+                  <button onClick={() => handleDeletePhoto(photo.id)}
+                    className="absolute top-1 right-1 p-1 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Vehicle details — 2-col grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">Make</label>
+              {editMode ? (
+                <input type="text" value={formData.vehicle_make || ''}
+                  onChange={(e) => setFormData({ ...formData, vehicle_make: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan"
+                  placeholder="e.g., Toyota" />
+              ) : (
+                <p className="text-text-primary text-sm">{suspect?.vehicle_make || 'N/A'}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">Model</label>
+              {editMode ? (
+                <input type="text" value={formData.vehicle_model || ''}
+                  onChange={(e) => setFormData({ ...formData, vehicle_model: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan"
+                  placeholder="e.g., Camry" />
+              ) : (
+                <p className="text-text-primary text-sm">{suspect?.vehicle_model || 'N/A'}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">Color</label>
+              {editMode ? (
+                <input type="text" value={formData.vehicle_color || ''}
+                  onChange={(e) => setFormData({ ...formData, vehicle_color: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan"
+                  placeholder="e.g., Silver" />
+              ) : (
+                <p className="text-text-primary text-sm">{suspect?.vehicle_color || 'N/A'}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">License Plate</label>
+              {editMode ? (
+                <input type="text" value={formData.license_plate || ''}
+                  onChange={(e) => setFormData({ ...formData, license_plate: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan uppercase"
+                  placeholder="e.g., ABC1234" />
+              ) : (
+                <p className="text-text-primary text-sm uppercase">{suspect?.license_plate || 'N/A'}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Firearms Registered + Criminal History — side by side ── */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* ── Firearms Registered Card ─────── */}
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-accent-cyan">Firearms Registered</h3>
+            <div className="flex bg-background rounded-lg border border-accent-cyan/20 overflow-hidden">
+              <button onClick={() => setFirearmsMode('manual')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  firearmsMode === 'manual' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
+                Manual
+              </button>
+              <button onClick={() => setFirearmsMode('pdf')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  firearmsMode === 'pdf' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
+                Upload PDF
+              </button>
+            </div>
+          </div>
+
+          {firearmsMode === 'manual' ? (
+            <>
+              {editMode ? (
+                <textarea value={formData.firearms_info || ''}
+                  onChange={(e) => setFormData({ ...formData, firearms_info: e.target.value })}
+                  rows={8}
+                  placeholder="Enter registered firearms information (make, model, serial#, caliber)..."
+                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan resize-none" />
+              ) : (
+                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10 min-h-[140px]">
+                  {suspect?.firearms_info ? (
+                    <pre className="text-text-primary text-sm whitespace-pre-wrap font-sans">{suspect.firearms_info}</pre>
+                  ) : (
+                    <p className="text-text-muted text-xs italic">No firearms data entered. Click Edit to add.</p>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              {(formData.firearms_pdf_path || suspect?.firearms_pdf_path) ? (
+                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-accent-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-text-primary text-sm truncate">
+                        {(formData.firearms_pdf_path || suspect?.firearms_pdf_path || '').split(/[\\/]/).pop()}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => {
+                        const p = formData.firearms_pdf_path || suspect?.firearms_pdf_path;
+                        if (p) window.electronAPI.openFileLocation(p);
+                      }}
+                        className="px-2 py-1 text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
+                        Open
+                      </button>
+                      {editMode && (
+                        <button onClick={() => {
+                          setFormData({ ...formData, firearms_pdf_path: '' });
+                          setFirearmsMode('manual');
+                        }}
+                          className="px-2 py-1 text-xs text-accent-pink hover:text-accent-pink/80 transition-colors">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => handleUploadRecordPdf('firearms_pdf_path', 'Firearms', 'Select Firearms Record PDF')}
+                  className="w-full py-8 bg-background rounded-lg border-2 border-dashed border-accent-cyan/20 
+                           hover:border-accent-cyan/40 transition-colors flex flex-col items-center gap-2">
+                  <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="text-text-muted text-xs">Upload CLETS / firearms printout PDF</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Criminal History Card ─────── */}
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-accent-cyan">Criminal History</h3>
+            <div className="flex bg-background rounded-lg border border-accent-cyan/20 overflow-hidden">
+              <button onClick={() => setCrimHistoryMode('manual')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  crimHistoryMode === 'manual' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
+                Manual
+              </button>
+              <button onClick={() => setCrimHistoryMode('pdf')}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  crimHistoryMode === 'pdf' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
+                Upload PDF
+              </button>
+            </div>
+          </div>
+
+          {crimHistoryMode === 'manual' ? (
+            <>
+              {editMode ? (
+                <textarea value={formData.criminal_history || ''}
+                  onChange={(e) => setFormData({ ...formData, criminal_history: e.target.value })}
+                  rows={8}
+                  placeholder="Enter criminal history (priors, convictions, warrants, probation/parole status)..."
+                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
+                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan resize-none" />
+              ) : (
+                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10 min-h-[140px]">
+                  {suspect?.criminal_history ? (
+                    <pre className="text-text-primary text-sm whitespace-pre-wrap font-sans">{suspect.criminal_history}</pre>
+                  ) : (
+                    <p className="text-text-muted text-xs italic">No criminal history entered. Click Edit to add.</p>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path) ? (
+                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-accent-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-text-primary text-sm truncate">
+                        {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path || '').split(/[\\/]/).pop()}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => {
+                        const p = formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path;
+                        if (p) window.electronAPI.openFileLocation(p);
+                      }}
+                        className="px-2 py-1 text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
+                        Open
+                      </button>
+                      {editMode && (
+                        <button onClick={() => {
+                          setFormData({ ...formData, criminal_history_pdf_path: '' });
+                          setCrimHistoryMode('manual');
+                        }}
+                          className="px-2 py-1 text-xs text-accent-pink hover:text-accent-pink/80 transition-colors">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => handleUploadRecordPdf('criminal_history_pdf_path', 'CriminalHistory', 'Select Criminal History PDF')}
+                  className="w-full py-8 bg-background rounded-lg border-2 border-dashed border-accent-cyan/20 
+                           hover:border-accent-cyan/40 transition-colors flex flex-col items-center gap-2">
+                  <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="text-text-muted text-xs">Upload CLETS / RAP sheet PDF</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
 
