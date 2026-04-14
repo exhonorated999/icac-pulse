@@ -30,9 +30,11 @@ interface Suspect {
   weight?: string;
   hair_color?: string;
   eye_color?: string;
+  scars_marks_tattoos?: string;
   vehicle_make?: string;
   vehicle_model?: string;
   vehicle_color?: string;
+  license_plate?: string;
   has_weapons?: boolean;
   firearms_info?: string;
   firearms_pdf_path?: string;
@@ -41,6 +43,20 @@ interface Suspect {
   latitude?: number;
   longitude?: number;
   geocoded_date?: string;
+}
+
+interface FirearmEntry {
+  make_model: string;
+  calibre: string;
+  serial_number: string;
+}
+
+interface CriminalRecordEntry {
+  date: string;
+  case_number: string;
+  offense: string;
+  sentence: string;
+  notes: string;
 }
 
 interface SuspectPhoto {
@@ -66,8 +82,16 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
   
   const [exporting, setExporting] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
-  const [firearmsMode, setFirearmsMode] = useState<'manual' | 'pdf'>('manual');
-  const [crimHistoryMode, setCrimHistoryMode] = useState<'manual' | 'pdf'>('manual');
+  
+  // Structured firearms & criminal history arrays (stored as JSON in DB TEXT columns)
+  const [firearms, setFirearms] = useState<FirearmEntry[]>([]);
+  const [crimRecords, setCrimRecords] = useState<CriminalRecordEntry[]>([]);
+  
+  // Modal state
+  const [showFirearmModal, setShowFirearmModal] = useState(false);
+  const [showCrimRecordModal, setShowCrimRecordModal] = useState(false);
+  const [newFirearm, setNewFirearm] = useState<FirearmEntry>({ make_model: '', calibre: '', serial_number: '' });
+  const [newCrimRecord, setNewCrimRecord] = useState<CriminalRecordEntry>({ date: '', case_number: '', offense: '', sentence: '', notes: '' });
   
   const [formData, setFormData] = useState<Partial<Suspect>>({
     first_name: '',
@@ -81,9 +105,11 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
     weight: '',
     hair_color: '',
     eye_color: '',
+    scars_marks_tattoos: '',
     vehicle_make: '',
     vehicle_model: '',
     vehicle_color: '',
+    license_plate: '',
     has_weapons: false,
     firearms_info: '',
     firearms_pdf_path: '',
@@ -183,8 +209,15 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
       if (suspectData) {
         setSuspect(suspectData);
         setFormData(suspectData);
-        if (suspectData.firearms_pdf_path) setFirearmsMode('pdf');
-        if (suspectData.criminal_history_pdf_path) setCrimHistoryMode('pdf');
+        // Parse structured firearms and criminal history from JSON
+        try {
+          const fa = suspectData.firearms_info ? JSON.parse(suspectData.firearms_info) : [];
+          setFirearms(Array.isArray(fa) ? fa : []);
+        } catch { setFirearms([]); }
+        try {
+          const cr = suspectData.criminal_history ? JSON.parse(suspectData.criminal_history) : [];
+          setCrimRecords(Array.isArray(cr) ? cr : []);
+        } catch { setCrimRecords([]); }
         
         // Load photos
         console.log('Loading photos for suspect ID:', suspectData.id);
@@ -393,6 +426,71 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
     }
   };
 
+  /* ── Firearms CRUD (always editable, no edit-mode gate) ── */
+  const addFirearm = async () => {
+    if (!newFirearm.make_model && !newFirearm.serial_number) {
+      showToast?.('Enter at least a make/model or serial number', 'error');
+      return;
+    }
+    const updated = [...firearms, { ...newFirearm }];
+    setFirearms(updated);
+    setNewFirearm({ make_model: '', calibre: '', serial_number: '' });
+    setShowFirearmModal(false);
+    // Persist as JSON
+    const json = JSON.stringify(updated);
+    const fd = { ...formData, firearms_info: json };
+    setFormData(fd);
+    if (suspect?.id) {
+      await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+      setSuspect(prev => prev ? { ...prev, firearms_info: json } : prev);
+    }
+    showToast?.('Firearm added', 'success');
+  };
+
+  const removeFirearm = async (index: number) => {
+    const updated = firearms.filter((_, i) => i !== index);
+    setFirearms(updated);
+    const json = updated.length > 0 ? JSON.stringify(updated) : '';
+    const fd = { ...formData, firearms_info: json };
+    setFormData(fd);
+    if (suspect?.id) {
+      await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+      setSuspect(prev => prev ? { ...prev, firearms_info: json } : prev);
+    }
+  };
+
+  /* ── Criminal Records CRUD (always editable, no edit-mode gate) ── */
+  const addCrimRecord = async () => {
+    if (!newCrimRecord.offense) {
+      showToast?.('Offense is required', 'error');
+      return;
+    }
+    const updated = [...crimRecords, { ...newCrimRecord }];
+    setCrimRecords(updated);
+    setNewCrimRecord({ date: '', case_number: '', offense: '', sentence: '', notes: '' });
+    setShowCrimRecordModal(false);
+    const json = JSON.stringify(updated);
+    const fd = { ...formData, criminal_history: json };
+    setFormData(fd);
+    if (suspect?.id) {
+      await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+      setSuspect(prev => prev ? { ...prev, criminal_history: json } : prev);
+    }
+    showToast?.('Criminal record added', 'success');
+  };
+
+  const removeCrimRecord = async (index: number) => {
+    const updated = crimRecords.filter((_, i) => i !== index);
+    setCrimRecords(updated);
+    const json = updated.length > 0 ? JSON.stringify(updated) : '';
+    const fd = { ...formData, criminal_history: json };
+    setFormData(fd);
+    if (suspect?.id) {
+      await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+      setSuspect(prev => prev ? { ...prev, criminal_history: json } : prev);
+    }
+  };
+
   const suspectPhotos = photos.filter(p => p.photo_type === 'suspect');
   const vehiclePhotos = photos.filter(p => p.photo_type === 'vehicle');
   const residencePhotos = photos.filter(p => p.photo_type === 'residence');
@@ -450,201 +548,191 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
         </div>
       </div>
 
-      {/* ── Identity Card ─────────────────────────────────────────── */}
-      <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
-        <h3 className="text-base font-semibold text-accent-cyan mb-5">Identity</h3>
+      {/* ── Identity Card (50% width) ─────────────────────────── */}
+      <div className="w-1/2">
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+          <h3 className="text-base font-semibold text-accent-cyan mb-4">Identity</h3>
 
-        {/* Hero row: mugshot + core identity fields */}
-        <div className="flex gap-6">
-
-          {/* Mugshot column */}
-          <div className="flex-shrink-0 flex flex-col items-center gap-3" style={{ width: '180px' }}>
-            {suspectPhotos.length === 0 ? (
-              <div className="w-full aspect-[3/4] bg-background rounded-lg border-2 border-dashed border-accent-cyan/30 
-                              flex flex-col items-center justify-center gap-2">
-                <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span className="text-xs text-text-muted text-center">No photo</span>
-              </div>
-            ) : (
-              <div className="relative group w-full aspect-[3/4] bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
-                <img
-                  src={`icac-case-file://${suspectPhotos[0].photo_path}`}
-                  alt="Suspect"
-                  className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => window.electronAPI.openFileLocation(suspectPhotos[0].photo_path)}
-                />
-                <button
-                  onClick={() => handleDeletePhoto(suspectPhotos[0].id)}
-                  className="absolute top-2 right-2 p-1.5 bg-accent-pink rounded-lg opacity-0 group-hover:opacity-100 
-                           transition-opacity hover:bg-accent-pink/80"
-                >
-                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          {/* Photo + core fields */}
+          <div className="flex gap-4">
+            {/* Mugshot */}
+            <div className="flex-shrink-0 flex flex-col items-center gap-2" style={{ width: '140px' }}>
+              {suspectPhotos.length === 0 ? (
+                <div className="w-full aspect-[3/4] bg-background rounded-lg border-2 border-dashed border-accent-cyan/30 
+                                flex flex-col items-center justify-center gap-1">
+                  <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
+                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                </button>
-              </div>
-            )}
-            <button
-              onClick={() => handleUploadPhoto('suspect')}
-              className="w-full px-2 py-1.5 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs 
-                         rounded-lg hover:bg-accent-cyan/20 transition-colors text-center"
-            >
-              + Upload Photo
-            </button>
-            {/* Additional suspect photos strip */}
-            {suspectPhotos.length > 1 && (
-              <div className="grid grid-cols-3 gap-1 w-full">
-                {suspectPhotos.slice(1).map((photo) => (
-                  <div key={photo.id} className="relative group aspect-square bg-background rounded overflow-hidden border border-accent-cyan/20">
-                    <img
-                      src={`icac-case-file://${photo.photo_path}`}
-                      alt="Suspect"
-                      className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => window.electronAPI.openFileLocation(photo.photo_path)}
-                    />
-                    <button
-                      onClick={() => handleDeletePhoto(photo.id)}
-                      className="absolute top-1 right-1 p-1 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Core identity fields */}
-          <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-4 content-start">
-            {/* Full name spanning both cols */}
-            <div>
-              <label className="block text-sm font-medium text-text-muted mb-1">First Name</label>
-              {editMode ? (
-                <input type="text" value={formData.first_name || ''}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.first_name || 'N/A'}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-muted mb-1">Last Name</label>
-              {editMode ? (
-                <input type="text" value={formData.last_name || ''}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.last_name || 'N/A'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-text-muted mb-1">Date of Birth</label>
-              {editMode ? (
-                <input type="date" value={formData.dob || ''}
-                  onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-              ) : (
-                <p className="text-text-primary text-base">{suspect?.dob || 'N/A'}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-text-muted mb-1">Driver's License</label>
-              {editMode ? (
-                <input type="text" value={formData.drivers_license || ''}
-                  onChange={(e) => setFormData({ ...formData, drivers_license: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-              ) : (
-                <p className="text-text-primary text-base font-mono">{suspect?.drivers_license || 'N/A'}</p>
-              )}
-            </div>
-
-            <div className="col-span-2">
-              <div className="flex items-center gap-2 mb-1">
-                <label className="text-sm font-medium text-text-muted">Phone Number</label>
-                {(formData.phone_carrier || suspect?.phone_carrier) && (
-                  <span className="text-xs px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded-full border border-accent-cyan/30">
-                    {formData.phone_carrier || suspect?.phone_carrier}
-                    {(formData.phone_line_type || suspect?.phone_line_type) && ` • ${formData.phone_line_type || suspect?.phone_line_type}`}
-                    {(formData.phone_location || suspect?.phone_location) && ` • ${formData.phone_location || suspect?.phone_location}`}
-                  </span>
-                )}
-              </div>
-              {editMode ? (
-                <div className="flex gap-2">
-                  <input type="tel" value={formData.phone || ''}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="flex-1 px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                             text-text-primary text-base focus:outline-none focus:border-accent-cyan" />
-                  {isCarrierLookupEnabled() && formData.phone && (
-                    <button type="button" onClick={handleCarrierLookup}
-                      className="px-3 py-2 bg-background border border-accent-cyan/30 text-accent-cyan rounded-lg 
-                               hover:bg-accent-cyan/10 transition-colors text-sm flex items-center gap-1">
-                      <span>📱</span> Lookup
-                    </button>
-                  )}
+                  <span className="text-[10px] text-text-muted">No photo</span>
                 </div>
               ) : (
-                <p className="text-text-primary text-base font-mono">{suspect?.phone || 'N/A'}</p>
+                <div className="relative group w-full aspect-[3/4] bg-background rounded-lg overflow-hidden border border-accent-cyan/20">
+                  <img
+                    src={`icac-case-file://${suspectPhotos[0].photo_path}`}
+                    alt="Suspect"
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => window.electronAPI.openFileLocation(suspectPhotos[0].photo_path)}
+                  />
+                  <button onClick={() => handleDeletePhoto(suspectPhotos[0].id)}
+                    className="absolute top-1 right-1 p-1 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent-pink/80">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               )}
+              <button onClick={() => handleUploadPhoto('suspect')}
+                className="w-full px-2 py-1 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-[10px] 
+                           rounded hover:bg-accent-cyan/20 transition-colors text-center">
+                + Upload Photo
+              </button>
+              {/* Extra photos strip */}
+              {suspectPhotos.length > 1 && (
+                <div className="grid grid-cols-3 gap-1 w-full">
+                  {suspectPhotos.slice(1).map((photo) => (
+                    <div key={photo.id} className="relative group aspect-square bg-background rounded overflow-hidden border border-accent-cyan/20">
+                      <img src={`icac-case-file://${photo.photo_path}`} alt="Suspect"
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => window.electronAPI.openFileLocation(photo.photo_path)} />
+                      <button onClick={() => handleDeletePhoto(photo.id)}
+                        className="absolute top-0.5 right-0.5 p-0.5 bg-accent-pink rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Fields */}
+            <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-3 content-start">
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-0.5">First Name</label>
+                {editMode ? (
+                  <input type="text" value={formData.first_name || ''}
+                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    className="w-full px-2 py-1.5 bg-background border border-accent-cyan/30 rounded text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                ) : (
+                  <p className="text-text-primary text-sm font-medium">{suspect?.first_name || 'N/A'}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-0.5">Last Name</label>
+                {editMode ? (
+                  <input type="text" value={formData.last_name || ''}
+                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                    className="w-full px-2 py-1.5 bg-background border border-accent-cyan/30 rounded text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                ) : (
+                  <p className="text-text-primary text-sm font-medium">{suspect?.last_name || 'N/A'}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-0.5">Date of Birth</label>
+                {editMode ? (
+                  <input type="date" value={formData.dob || ''}
+                    onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                    className="w-full px-2 py-1.5 bg-background border border-accent-cyan/30 rounded text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                ) : (
+                  <p className="text-text-primary text-sm">{suspect?.dob || 'N/A'}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-0.5">Driver's License</label>
+                {editMode ? (
+                  <input type="text" value={formData.drivers_license || ''}
+                    onChange={(e) => setFormData({ ...formData, drivers_license: e.target.value })}
+                    className="w-full px-2 py-1.5 bg-background border border-accent-cyan/30 rounded text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                ) : (
+                  <p className="text-text-primary text-sm font-mono">{suspect?.drivers_license || 'N/A'}</p>
+                )}
+              </div>
+              <div className="col-span-2">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <label className="text-xs font-medium text-text-muted">Phone Number</label>
+                  {(formData.phone_carrier || suspect?.phone_carrier) && (
+                    <span className="text-[10px] px-1.5 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded-full border border-accent-cyan/30">
+                      {formData.phone_carrier || suspect?.phone_carrier}
+                      {(formData.phone_line_type || suspect?.phone_line_type) && ` · ${formData.phone_line_type || suspect?.phone_line_type}`}
+                    </span>
+                  )}
+                </div>
+                {editMode ? (
+                  <div className="flex gap-2">
+                    <input type="tel" value={formData.phone || ''}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      className="flex-1 px-2 py-1.5 bg-background border border-accent-cyan/30 rounded text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                    {isCarrierLookupEnabled() && formData.phone && (
+                      <button type="button" onClick={handleCarrierLookup}
+                        className="px-2 py-1.5 bg-background border border-accent-cyan/30 text-accent-cyan rounded hover:bg-accent-cyan/10 transition-colors text-xs">
+                        📱 Lookup
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-text-primary text-sm font-mono">{suspect?.phone || 'N/A'}</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* ── Physical description strip ── */}
-        <div className="mt-6 pt-5 border-t border-accent-cyan/10">
-          <p className="text-sm font-medium text-text-muted mb-3">Physical Description</p>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="bg-background rounded-lg px-4 py-3 border border-accent-cyan/10">
-              <label className="block text-sm font-medium text-text-muted mb-1">Height</label>
-              {editMode ? (
-                <input type="text" placeholder="e.g. 5'10&quot;" value={formData.height || ''}
-                  onChange={(e) => setFormData({ ...formData, height: e.target.value })}
-                  className="w-full bg-transparent text-text-primary text-base focus:outline-none" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.height || 'N/A'}</p>
-              )}
-            </div>
-            <div className="bg-background rounded-lg px-4 py-3 border border-accent-cyan/10">
-              <label className="block text-sm font-medium text-text-muted mb-1">Weight</label>
-              {editMode ? (
-                <input type="text" placeholder="e.g. 180 lbs" value={formData.weight || ''}
-                  onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                  className="w-full bg-transparent text-text-primary text-base focus:outline-none" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.weight || 'N/A'}</p>
-              )}
-            </div>
-            <div className="bg-background rounded-lg px-4 py-3 border border-accent-cyan/10">
-              <label className="block text-sm font-medium text-text-muted mb-1">Hair Color</label>
-              {editMode ? (
-                <input type="text" placeholder="e.g. Brown" value={formData.hair_color || ''}
-                  onChange={(e) => setFormData({ ...formData, hair_color: e.target.value })}
-                  className="w-full bg-transparent text-text-primary text-base focus:outline-none" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.hair_color || 'N/A'}</p>
-              )}
-            </div>
-            <div className="bg-background rounded-lg px-4 py-3 border border-accent-cyan/10">
-              <label className="block text-sm font-medium text-text-muted mb-1">Eye Color</label>
-              {editMode ? (
-                <input type="text" placeholder="e.g. Blue" value={formData.eye_color || ''}
-                  onChange={(e) => setFormData({ ...formData, eye_color: e.target.value })}
-                  className="w-full bg-transparent text-text-primary text-base focus:outline-none" />
-              ) : (
-                <p className="text-text-primary text-base font-medium">{suspect?.eye_color || 'N/A'}</p>
-              )}
-            </div>
+      {/* ── Physical Description ─────────────────────────────── */}
+      <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
+        <p className="text-sm font-medium text-text-muted mb-3">Physical Description</p>
+        <div className="grid grid-cols-5 gap-3">
+          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-0.5">Height</label>
+            {editMode ? (
+              <input type="text" placeholder="e.g. 5'10&quot;" value={formData.height || ''}
+                onChange={(e) => setFormData({ ...formData, height: e.target.value })}
+                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+            ) : (
+              <p className="text-text-primary text-sm font-medium">{suspect?.height || 'N/A'}</p>
+            )}
+          </div>
+          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-0.5">Weight</label>
+            {editMode ? (
+              <input type="text" placeholder="e.g. 180 lbs" value={formData.weight || ''}
+                onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+            ) : (
+              <p className="text-text-primary text-sm font-medium">{suspect?.weight || 'N/A'}</p>
+            )}
+          </div>
+          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-0.5">Hair Color</label>
+            {editMode ? (
+              <input type="text" placeholder="e.g. Brown" value={formData.hair_color || ''}
+                onChange={(e) => setFormData({ ...formData, hair_color: e.target.value })}
+                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+            ) : (
+              <p className="text-text-primary text-sm font-medium">{suspect?.hair_color || 'N/A'}</p>
+            )}
+          </div>
+          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-0.5">Eye Color</label>
+            {editMode ? (
+              <input type="text" placeholder="e.g. Blue" value={formData.eye_color || ''}
+                onChange={(e) => setFormData({ ...formData, eye_color: e.target.value })}
+                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+            ) : (
+              <p className="text-text-primary text-sm font-medium">{suspect?.eye_color || 'N/A'}</p>
+            )}
+          </div>
+          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+            <label className="block text-xs font-medium text-text-muted mb-0.5">Scars / Marks / Tattoos</label>
+            {editMode ? (
+              <input type="text" placeholder="Description" value={formData.scars_marks_tattoos || ''}
+                onChange={(e) => setFormData({ ...formData, scars_marks_tattoos: e.target.value })}
+                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+            ) : (
+              <p className="text-text-primary text-sm font-medium">{suspect?.scars_marks_tattoos || 'N/A'}</p>
+            )}
           </div>
         </div>
       </div>
@@ -849,180 +937,243 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
         </div>
       </div>
 
-      {/* ── Firearms Registered + Criminal History — side by side ── */}
+      {/* ── Registered Firearms + Criminal History — VIPER style ── */}
       <div className="grid grid-cols-2 gap-4">
-        {/* ── Firearms Registered Card ─────── */}
+        {/* ── Registered Firearms ─────── */}
         <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold text-accent-cyan">Firearms Registered</h3>
-            <div className="flex bg-background rounded-lg border border-accent-cyan/20 overflow-hidden">
-              <button onClick={() => setFirearmsMode('manual')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  firearmsMode === 'manual' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
-                Manual
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-amber-400">Registered Firearms</h3>
+            <div className="flex gap-2">
+              <button onClick={() => handleUploadRecordPdf('firearms_pdf_path', 'Firearms', 'Select Firearms Record PDF')}
+                className="px-3 py-1 bg-amber-400/10 border border-amber-400/30 text-amber-400 text-xs rounded 
+                           hover:bg-amber-400/20 transition-colors flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                Upload Firearms Doc
               </button>
-              <button onClick={() => setFirearmsMode('pdf')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  firearmsMode === 'pdf' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
-                Upload PDF
+              <button onClick={() => setShowFirearmModal(true)}
+                className="px-3 py-1 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs rounded 
+                           hover:bg-accent-cyan/20 transition-colors">
+                + Add Firearm
               </button>
             </div>
           </div>
 
-          {firearmsMode === 'manual' ? (
-            <>
-              {editMode ? (
-                <textarea value={formData.firearms_info || ''}
-                  onChange={(e) => setFormData({ ...formData, firearms_info: e.target.value })}
-                  rows={8}
-                  placeholder="Enter registered firearms information (make, model, serial#, caliber)..."
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan resize-none" />
-              ) : (
-                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10 min-h-[140px]">
-                  {suspect?.firearms_info ? (
-                    <pre className="text-text-primary text-sm whitespace-pre-wrap font-sans">{suspect.firearms_info}</pre>
-                  ) : (
-                    <p className="text-text-muted text-xs italic">No firearms data entered. Click Edit to add.</p>
-                  )}
-                </div>
-              )}
-            </>
+          {/* Uploaded PDF indicator */}
+          {(formData.firearms_pdf_path || suspect?.firearms_pdf_path) && (
+            <div className="bg-background rounded p-2 border border-amber-400/20 mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span className="text-text-primary text-xs truncate">
+                  {(formData.firearms_pdf_path || suspect?.firearms_pdf_path || '').split(/[\\/]/).pop()}
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => { const p = formData.firearms_pdf_path || suspect?.firearms_pdf_path; if (p) window.electronAPI.openFileLocation(p); }}
+                  className="px-2 py-0.5 text-[10px] text-accent-cyan hover:text-accent-cyan/80">Open</button>
+                <button onClick={async () => {
+                  const fd = { ...formData, firearms_pdf_path: '' };
+                  setFormData(fd);
+                  if (suspect?.id) {
+                    await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+                    setSuspect(prev => prev ? { ...prev, firearms_pdf_path: '' } : prev);
+                  }
+                }}
+                  className="px-2 py-0.5 text-[10px] text-accent-pink hover:text-accent-pink/80">Remove</button>
+              </div>
+            </div>
+          )}
+
+          {/* Firearms list */}
+          {firearms.length === 0 ? (
+            <p className="text-text-muted text-xs italic py-2">No registered firearms</p>
           ) : (
-            <div className="space-y-3">
-              {(formData.firearms_pdf_path || suspect?.firearms_pdf_path) ? (
-                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 text-accent-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-text-primary text-sm truncate">
-                        {(formData.firearms_pdf_path || suspect?.firearms_pdf_path || '').split(/[\\/]/).pop()}
-                      </span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => {
-                        const p = formData.firearms_pdf_path || suspect?.firearms_pdf_path;
-                        if (p) window.electronAPI.openFileLocation(p);
-                      }}
-                        className="px-2 py-1 text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
-                        Open
-                      </button>
-                      {editMode && (
-                        <button onClick={() => {
-                          setFormData({ ...formData, firearms_pdf_path: '' });
-                          setFirearmsMode('manual');
-                        }}
-                          className="px-2 py-1 text-xs text-accent-pink hover:text-accent-pink/80 transition-colors">
-                          Remove
-                        </button>
-                      )}
-                    </div>
+            <div className="space-y-1.5">
+              {firearms.map((fa, i) => (
+                <div key={i} className="bg-background rounded p-2.5 border border-accent-cyan/10 flex items-center justify-between group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-text-primary text-sm font-medium truncate">{fa.make_model || 'Unknown'}</p>
+                    <p className="text-text-muted text-xs">
+                      {fa.calibre && <span>{fa.calibre}</span>}
+                      {fa.calibre && fa.serial_number && <span className="mx-1.5">·</span>}
+                      {fa.serial_number && <span className="font-mono">S/N: {fa.serial_number}</span>}
+                    </p>
                   </div>
+                  <button onClick={() => removeFirearm(i)}
+                    className="p-1 text-accent-pink opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent-pink/10 rounded">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-              ) : (
-                <button onClick={() => handleUploadRecordPdf('firearms_pdf_path', 'Firearms', 'Select Firearms Record PDF')}
-                  className="w-full py-8 bg-background rounded-lg border-2 border-dashed border-accent-cyan/20 
-                           hover:border-accent-cyan/40 transition-colors flex flex-col items-center gap-2">
-                  <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <span className="text-text-muted text-xs">Upload CLETS / firearms printout PDF</span>
-                </button>
-              )}
+              ))}
             </div>
           )}
         </div>
 
-        {/* ── Criminal History Card ─────── */}
+        {/* ── Criminal History ─────── */}
         <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-semibold text-accent-cyan">Criminal History</h3>
-            <div className="flex bg-background rounded-lg border border-accent-cyan/20 overflow-hidden">
-              <button onClick={() => setCrimHistoryMode('manual')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  crimHistoryMode === 'manual' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
-                Manual
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-accent-pink">Criminal History</h3>
+            <div className="flex gap-2">
+              <button onClick={() => handleUploadRecordPdf('criminal_history_pdf_path', 'CriminalHistory', 'Select Criminal History PDF')}
+                className="px-3 py-1 bg-accent-pink/10 border border-accent-pink/30 text-accent-pink text-xs rounded 
+                           hover:bg-accent-pink/20 transition-colors flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                Upload Rap Sheet
               </button>
-              <button onClick={() => setCrimHistoryMode('pdf')}
-                className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  crimHistoryMode === 'pdf' ? 'bg-accent-cyan text-background' : 'text-text-muted hover:text-text-primary'}`}>
-                Upload PDF
+              <button onClick={() => setShowCrimRecordModal(true)}
+                className="px-3 py-1 bg-accent-pink/10 border border-accent-pink/30 text-accent-pink text-xs rounded 
+                           hover:bg-accent-pink/20 transition-colors">
+                + Add Record
               </button>
             </div>
           </div>
 
-          {crimHistoryMode === 'manual' ? (
-            <>
-              {editMode ? (
-                <textarea value={formData.criminal_history || ''}
-                  onChange={(e) => setFormData({ ...formData, criminal_history: e.target.value })}
-                  rows={8}
-                  placeholder="Enter criminal history (priors, convictions, warrants, probation/parole status)..."
-                  className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg 
-                           text-text-primary text-sm focus:outline-none focus:border-accent-cyan resize-none" />
-              ) : (
-                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10 min-h-[140px]">
-                  {suspect?.criminal_history ? (
-                    <pre className="text-text-primary text-sm whitespace-pre-wrap font-sans">{suspect.criminal_history}</pre>
-                  ) : (
-                    <p className="text-text-muted text-xs italic">No criminal history entered. Click Edit to add.</p>
-                  )}
-                </div>
-              )}
-            </>
+          {/* Uploaded PDF indicator */}
+          {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path) && (
+            <div className="bg-background rounded p-2 border border-accent-pink/20 mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-accent-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span className="text-text-primary text-xs truncate">
+                  {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path || '').split(/[\\/]/).pop()}
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => { const p = formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path; if (p) window.electronAPI.openFileLocation(p); }}
+                  className="px-2 py-0.5 text-[10px] text-accent-cyan hover:text-accent-cyan/80">Open</button>
+                <button onClick={async () => {
+                  const fd = { ...formData, criminal_history_pdf_path: '' };
+                  setFormData(fd);
+                  if (suspect?.id) {
+                    await window.electronAPI.saveSuspect({ ...fd, case_id: caseId });
+                    setSuspect(prev => prev ? { ...prev, criminal_history_pdf_path: '' } : prev);
+                  }
+                }}
+                  className="px-2 py-0.5 text-[10px] text-accent-pink hover:text-accent-pink/80">Remove</button>
+              </div>
+            </div>
+          )}
+
+          {/* Criminal records list */}
+          {crimRecords.length === 0 ? (
+            <p className="text-text-muted text-xs italic py-2">No criminal history recorded</p>
           ) : (
-            <div className="space-y-3">
-              {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path) ? (
-                <div className="bg-background rounded-lg p-3 border border-accent-cyan/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 text-accent-pink" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-text-primary text-sm truncate">
-                        {(formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path || '').split(/[\\/]/).pop()}
-                      </span>
+            <div className="space-y-1.5">
+              {crimRecords.map((cr, i) => (
+                <div key={i} className="bg-background rounded p-2.5 border border-accent-cyan/10 flex items-start justify-between group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-text-primary text-sm font-medium">{cr.offense}</p>
+                    <div className="flex gap-3 text-text-muted text-xs mt-0.5">
+                      {cr.date && <span>{cr.date}</span>}
+                      {cr.case_number && <span className="font-mono">#{cr.case_number}</span>}
                     </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => {
-                        const p = formData.criminal_history_pdf_path || suspect?.criminal_history_pdf_path;
-                        if (p) window.electronAPI.openFileLocation(p);
-                      }}
-                        className="px-2 py-1 text-xs text-accent-cyan hover:text-accent-cyan/80 transition-colors">
-                        Open
-                      </button>
-                      {editMode && (
-                        <button onClick={() => {
-                          setFormData({ ...formData, criminal_history_pdf_path: '' });
-                          setCrimHistoryMode('manual');
-                        }}
-                          className="px-2 py-1 text-xs text-accent-pink hover:text-accent-pink/80 transition-colors">
-                          Remove
-                        </button>
-                      )}
-                    </div>
+                    {cr.sentence && <p className="text-text-muted text-xs mt-0.5">{cr.sentence}</p>}
+                    {cr.notes && <p className="text-text-muted/60 text-xs mt-0.5 italic">{cr.notes}</p>}
                   </div>
+                  <button onClick={() => removeCrimRecord(i)}
+                    className="p-1 text-accent-pink opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent-pink/10 rounded flex-shrink-0">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-              ) : (
-                <button onClick={() => handleUploadRecordPdf('criminal_history_pdf_path', 'CriminalHistory', 'Select Criminal History PDF')}
-                  className="w-full py-8 bg-background rounded-lg border-2 border-dashed border-accent-cyan/20 
-                           hover:border-accent-cyan/40 transition-colors flex flex-col items-center gap-2">
-                  <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <span className="text-text-muted text-xs">Upload CLETS / RAP sheet PDF</span>
-                </button>
-              )}
+              ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* ── Add Firearm Modal ── */}
+      {showFirearmModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowFirearmModal(false)}>
+          <div className="bg-panel border border-accent-cyan/30 rounded-xl p-6 w-[420px] shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-text-primary mb-4">Add Firearm</h3>
+            <div className="space-y-3">
+              <input type="text" value={newFirearm.make_model} placeholder="Make/Model"
+                onChange={e => setNewFirearm({ ...newFirearm, make_model: e.target.value })}
+                className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" autoFocus />
+              <input type="text" value={newFirearm.calibre} placeholder="Calibre"
+                onChange={e => setNewFirearm({ ...newFirearm, calibre: e.target.value })}
+                className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+              <input type="text" value={newFirearm.serial_number} placeholder="Serial Number"
+                onChange={e => setNewFirearm({ ...newFirearm, serial_number: e.target.value })}
+                className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setShowFirearmModal(false)}
+                className="px-4 py-2 bg-background border border-accent-cyan/30 text-text-primary rounded-lg hover:border-accent-cyan transition-colors text-sm">
+                Cancel
+              </button>
+              <button onClick={addFirearm}
+                className="px-4 py-2 bg-amber-400 text-background rounded-lg hover:bg-amber-500 transition-colors text-sm font-medium">
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Criminal Record Modal ── */}
+      {showCrimRecordModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowCrimRecordModal(false)}>
+          <div className="bg-panel border border-accent-pink/30 rounded-xl p-6 w-[480px] shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-text-primary mb-4">Add Criminal Record</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-text-muted mb-1">Date of Conviction *</label>
+                  <input type="date" value={newCrimRecord.date}
+                    onChange={e => setNewCrimRecord({ ...newCrimRecord, date: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-muted mb-1">Case Number</label>
+                  <input type="text" value={newCrimRecord.case_number} placeholder="e.g. 2024-CF-12345"
+                    onChange={e => setNewCrimRecord({ ...newCrimRecord, case_number: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Offense *</label>
+                <input type="text" value={newCrimRecord.offense} placeholder="e.g. 487(a) PC - Grand Theft"
+                  onChange={e => setNewCrimRecord({ ...newCrimRecord, offense: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Sentence</label>
+                <input type="text" value={newCrimRecord.sentence} placeholder="e.g. 3 years probation, 180 days county jail"
+                  onChange={e => setNewCrimRecord({ ...newCrimRecord, sentence: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-muted mb-1">Notes</label>
+                <textarea value={newCrimRecord.notes} placeholder="Additional details..."
+                  onChange={e => setNewCrimRecord({ ...newCrimRecord, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2.5 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm focus:outline-none focus:border-accent-cyan resize-none" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setShowCrimRecordModal(false)}
+                className="px-4 py-2 bg-background border border-accent-cyan/30 text-text-primary rounded-lg hover:border-accent-cyan transition-colors text-sm">
+                Cancel
+              </button>
+              <button onClick={addCrimRecord}
+                className="px-4 py-2 bg-accent-pink text-white rounded-lg hover:bg-accent-pink/90 transition-colors text-sm font-medium">
+                Add Record
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
 
     </div>

@@ -2964,10 +2964,16 @@ For questions about this export, contact the investigating officer.
             weight = ?,
             hair_color = ?,
             eye_color = ?,
+            scars_marks_tattoos = ?,
             vehicle_make = ?,
             vehicle_model = ?,
             vehicle_color = ?,
-            has_weapons = ?
+            license_plate = ?,
+            has_weapons = ?,
+            firearms_info = ?,
+            firearms_pdf_path = ?,
+            criminal_history = ?,
+            criminal_history_pdf_path = ?
           WHERE id = ?
         `);
         
@@ -2988,10 +2994,16 @@ For questions about this export, contact the investigating officer.
           suspectData.weight || null,
           suspectData.hair_color || null,
           suspectData.eye_color || null,
+          suspectData.scars_marks_tattoos || null,
           suspectData.vehicle_make || null,
           suspectData.vehicle_model || null,
           suspectData.vehicle_color || null,
+          suspectData.license_plate || null,
           suspectData.has_weapons ? 1 : 0,
+          suspectData.firearms_info || null,
+          suspectData.firearms_pdf_path || null,
+          suspectData.criminal_history || null,
+          suspectData.criminal_history_pdf_path || null,
           suspectId
         );
         
@@ -3008,8 +3020,10 @@ For questions about this export, contact the investigating officer.
         const insertStmt = db.prepare(`
           INSERT INTO suspects 
           (case_id, first_name, last_name, name, dob, drivers_license, address, phone, phone_carrier, phone_line_type, phone_location,
-           workplace, place_of_work, height, weight, hair_color, eye_color, vehicle_make, vehicle_model, vehicle_color, has_weapons)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           workplace, place_of_work, height, weight, hair_color, eye_color, scars_marks_tattoos,
+           vehicle_make, vehicle_model, vehicle_color, license_plate, has_weapons,
+           firearms_info, firearms_pdf_path, criminal_history, criminal_history_pdf_path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
         insertStmt.run(
@@ -3030,10 +3044,16 @@ For questions about this export, contact the investigating officer.
           suspectData.weight || null,
           suspectData.hair_color || null,
           suspectData.eye_color || null,
+          suspectData.scars_marks_tattoos || null,
           suspectData.vehicle_make || null,
           suspectData.vehicle_model || null,
           suspectData.vehicle_color || null,
-          suspectData.has_weapons ? 1 : 0
+          suspectData.license_plate || null,
+          suspectData.has_weapons ? 1 : 0,
+          suspectData.firearms_info || null,
+          suspectData.firearms_pdf_path || null,
+          suspectData.criminal_history || null,
+          suspectData.criminal_history_pdf_path || null
         );
         
         // Query back the inserted record by case_id
@@ -3642,79 +3662,125 @@ For questions about this export, contact the investigating officer.
   
   ipcMain.handle(IPC_CHANNELS.GET_OPS_PLAN, async (_event, caseId: number) => {
     try {
-      // safeLog('GET_OPS_PLAN called for case:', caseId);
       const stmt = db.prepare('SELECT * FROM operations_plans WHERE case_id = ? LIMIT 1');
       const opPlan = stmt.get(caseId);
-      // safeLog('GET_OPS_PLAN result:', opPlan);
-      
       return opPlan || null;
     } catch (error) {
-      // safeLog('GET_OPS_PLAN error:', error);
       throw error;
     }
   });
   
   ipcMain.handle(IPC_CHANNELS.SAVE_OPS_PLAN, async (_event, opPlanData: any) => {
     try {
-      // safeLog('SAVE_OPS_PLAN called with:', opPlanData);
-      
-      // Check if ops plan exists
       const checkStmt = db.prepare('SELECT id FROM operations_plans WHERE case_id = ? LIMIT 1');
       const existing = checkStmt.get(opPlanData.case_id);
       
+      const cols = [
+        'plan_pdf_path', 'approved', 'approver_name', 'approval_date', 'execution_date',
+        'date', 'time', 'report_number', 'case_agent', 'operation_type',
+        'location', 'briefing_location', 'fortifications', 'cameras', 'dogs', 'children',
+        'notifications', 'comms', 'hospital', 'rally_point',
+        'suspect_info', 'case_summary',
+        'tactical_plan', 'pursuit_plan', 'medical_plan', 'barricade_plan', 'contingency_plan',
+        'directions', 'location_photos', 'route_data',
+      ];
+
+      const vals = cols.map(c => {
+        if (c === 'approved') return opPlanData[c] ? 1 : 0;
+        if (c === 'operation_type' && typeof opPlanData[c] === 'object') return JSON.stringify(opPlanData[c]);
+        if (c === 'location_photos' && typeof opPlanData[c] === 'object') return JSON.stringify(opPlanData[c]);
+        if (c === 'route_data' && typeof opPlanData[c] === 'object') return JSON.stringify(opPlanData[c]);
+        return opPlanData[c] || null;
+      });
+      
       if (existing) {
-        // Update existing
         const opPlanId = existing.id;
-        // safeLog('Updating existing ops plan:', opPlanId);
-        
-        const updateStmt = db.prepare(`
-          UPDATE operations_plans SET
-            plan_pdf_path = ?,
-            approved = ?,
-            approver_name = ?,
-            approval_date = ?,
-            execution_date = ?
-          WHERE id = ?
-        `);
-        
-        updateStmt.run(
-          opPlanData.plan_pdf_path || null,
-          opPlanData.approved ? 1 : 0,
-          opPlanData.approver_name || null,
-          opPlanData.approval_date || null,
-          opPlanData.execution_date || null,
-          opPlanId
-        );
-        
+        const setClause = cols.map(c => `${c} = ?`).join(', ');
+        db.prepare(`UPDATE operations_plans SET ${setClause} WHERE id = ?`).run(...vals, opPlanId);
+        saveDatabase();
         return { id: opPlanId, ...opPlanData };
       } else {
-        // Insert new
-        // safeLog('Inserting new ops plan for case:', opPlanData.case_id);
-        
-        const insertStmt = db.prepare(`
-          INSERT INTO operations_plans 
-          (case_id, plan_pdf_path, approved, approver_name, approval_date, execution_date)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        
-        insertStmt.run(
-          opPlanData.case_id,
-          opPlanData.plan_pdf_path || null,
-          opPlanData.approved ? 1 : 0,
-          opPlanData.approver_name || null,
-          opPlanData.approval_date || null,
-          opPlanData.execution_date || null
-        );
-        
-        // Query back the inserted record
-        const verifyStmt = db.prepare('SELECT * FROM operations_plans WHERE case_id = ? LIMIT 1');
-        const inserted = verifyStmt.get(opPlanData.case_id);
-        // safeLog('Inserted ops plan:', inserted);
-        
+        const placeholders = cols.map(() => '?').join(', ');
+        db.prepare(`INSERT INTO operations_plans (case_id, ${cols.join(', ')}) VALUES (?, ${placeholders})`).run(opPlanData.case_id, ...vals);
+        saveDatabase();
+        const inserted = db.prepare('SELECT * FROM operations_plans WHERE case_id = ? LIMIT 1').get(opPlanData.case_id);
         return inserted;
       }
     } catch (error) {
-      // safeLog('SAVE_OPS_PLAN error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GET_OPS_ENTRY_TEAM, async (_event, opsPlanId: number) => {
+    try {
+      const rows = db.prepare('SELECT * FROM ops_entry_team WHERE ops_plan_id = ? ORDER BY sort_order').all(opsPlanId);
+      return rows || [];
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_OPS_ENTRY_TEAM, async (_event, opsPlanId: number, team: any[]) => {
+    try {
+      db.prepare('DELETE FROM ops_entry_team WHERE ops_plan_id = ?').run(opsPlanId);
+      const insertStmt = db.prepare('INSERT INTO ops_entry_team (ops_plan_id, name, assignment, vehicle, call_sign, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
+      team.forEach((m, i) => {
+        insertStmt.run(opsPlanId, m.name || null, m.assignment || null, m.vehicle || null, m.callSign || null, i);
+      });
+      saveDatabase();
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GET_OPS_RESIDENTS, async (_event, opsPlanId: number) => {
+    try {
+      const rows = db.prepare('SELECT * FROM ops_other_residents WHERE ops_plan_id = ? ORDER BY sort_order').all(opsPlanId);
+      return rows || [];
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_OPS_RESIDENTS, async (_event, opsPlanId: number, residents: any[]) => {
+    try {
+      db.prepare('DELETE FROM ops_other_residents WHERE ops_plan_id = ?').run(opsPlanId);
+      const insertStmt = db.prepare('INSERT INTO ops_other_residents (ops_plan_id, name, dob, photo, has_firearms, firearms, has_crim_history, crim_history, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      residents.forEach((r, i) => {
+        insertStmt.run(opsPlanId, r.name || null, r.dob || null, r.photo || null, r.hasFirearms ? 1 : 0, r.firearms || null, r.hasCrimHistory ? 1 : 0, r.crimHistory || null, i);
+      });
+      saveDatabase();
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_OPS_PLAN_PDF, async (_event, data: any) => {
+    try {
+      const { dialog, BrowserWindow } = require('electron');
+      const result = await dialog.showSaveDialog({
+        title: 'Export Operations Plan',
+        defaultPath: `OPS_Plan_${data.caseNumber || 'export'}.pdf`,
+        filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+      });
+      if (result.canceled || !result.filePath) return { success: false };
+
+      // Create a hidden window to render HTML then print to PDF
+      const printWin = new BrowserWindow({ show: false, width: 816, height: 1056, webPreferences: { offscreen: true } });
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(data.html)}`);
+      const pdfBuffer = await printWin.webContents.printToPDF({
+        printBackground: true,
+        preferCSSPageSize: true,
+        margins: { marginType: 'none' },
+      });
+      printWin.close();
+
+      const fs = require('fs');
+      fs.writeFileSync(result.filePath, pdfBuffer);
+      return { success: true, filePath: result.filePath };
+    } catch (error) {
       throw error;
     }
   });
@@ -3800,10 +3866,12 @@ For questions about this export, contact the investigating officer.
         throw new Error('Case not found');
       }
       
-      // Get current user/officer name
-      const userStmt = db.prepare('SELECT username FROM users LIMIT 1');
-      const userInfo = userStmt.get();
-      const officerName = userInfo ? userInfo.username : 'Unknown Officer';
+      // Get current user/officer name — prefer profile data passed from renderer
+      const officerName = data.officerName || (() => {
+        try { const u = db.prepare('SELECT username FROM users LIMIT 1').get(); return u ? u.username : 'Unknown Officer'; } catch { return 'Unknown Officer'; }
+      })();
+      const agency = data.agency || '';
+      const badgeNumber = data.badgeNumber || '';
       
       // Get current date and time
       const now = new Date();
@@ -3939,7 +4007,7 @@ ${data.content}
           
           <div class="footer">
             <div class="footer-left">
-              Prepared by: ${officerName}
+              Prepared by: ${officerName}${badgeNumber ? ' #' + badgeNumber : ''}${agency ? ' — ' + agency : ''}
             </div>
             <div class="footer-right">
               ${dateString} at ${timeString}

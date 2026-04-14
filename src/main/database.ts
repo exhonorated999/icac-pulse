@@ -1050,6 +1050,99 @@ function runMigrations(): void {
       safeLog('Migration 16 error:', m16err);
     }
 
+    // Migration 17: Expand operations_plans with full OPS plan fields + related tables
+    try {
+      const opColsRaw = db.exec("PRAGMA table_info(operations_plans)");
+      const opColNames = opColsRaw.length > 0 ? opColsRaw[0].values.map((r: any) => r[1]) : [];
+
+      const newCols: [string, string][] = [
+        ['date', 'TEXT'], ['time', 'TEXT'], ['report_number', 'TEXT'], ['case_agent', 'TEXT'],
+        ['operation_type', 'TEXT'], ['location', 'TEXT'], ['briefing_location', 'TEXT'],
+        ['fortifications', 'TEXT'], ['cameras', 'TEXT'], ['dogs', 'TEXT'], ['children', 'TEXT'],
+        ['notifications', 'TEXT'], ['comms', 'TEXT'], ['hospital', 'TEXT'], ['rally_point', 'TEXT'],
+        ['suspect_info', 'TEXT'], ['case_summary', 'TEXT'],
+        ['tactical_plan', 'TEXT'], ['pursuit_plan', 'TEXT'], ['medical_plan', 'TEXT'],
+        ['barricade_plan', 'TEXT'], ['contingency_plan', 'TEXT'],
+        ['directions', 'TEXT'], ['location_photos', 'TEXT'],
+        ['route_data', 'TEXT'],
+      ];
+      for (const [col, type] of newCols) {
+        if (!opColNames.includes(col)) {
+          db.run(`ALTER TABLE operations_plans ADD COLUMN ${col} ${type}`);
+        }
+      }
+
+      // Entry team table
+      db.run(`CREATE TABLE IF NOT EXISTS ops_entry_team (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ops_plan_id INTEGER NOT NULL,
+        name TEXT,
+        assignment TEXT,
+        vehicle TEXT,
+        call_sign TEXT,
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (ops_plan_id) REFERENCES operations_plans(id) ON DELETE CASCADE
+      )`);
+
+      // Other residents table
+      db.run(`CREATE TABLE IF NOT EXISTS ops_other_residents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ops_plan_id INTEGER NOT NULL,
+        name TEXT,
+        dob TEXT,
+        photo TEXT,
+        has_firearms INTEGER DEFAULT 0,
+        firearms TEXT,
+        has_crim_history INTEGER DEFAULT 0,
+        crim_history TEXT,
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (ops_plan_id) REFERENCES operations_plans(id) ON DELETE CASCADE
+      )`);
+
+      saveDatabase();
+      safeLog('Migration 17 (ops plan expansion) completed');
+    } catch (m17err) {
+      safeLog('Migration 17 error:', m17err);
+    }
+
+    // Migration 18: Add firearms_info and criminal_history to suspects
+    try {
+      const susColsRaw18 = db.exec("PRAGMA table_info(suspects)");
+      const susColNames18 = susColsRaw18.length > 0 ? susColsRaw18[0].values.map((r: any) => r[1]) : [];
+      if (!susColNames18.includes('firearms_info')) {
+        db.run('ALTER TABLE suspects ADD COLUMN firearms_info TEXT');
+      }
+      if (!susColNames18.includes('firearms_pdf_path')) {
+        db.run('ALTER TABLE suspects ADD COLUMN firearms_pdf_path TEXT');
+      }
+      if (!susColNames18.includes('criminal_history')) {
+        db.run('ALTER TABLE suspects ADD COLUMN criminal_history TEXT');
+      }
+      if (!susColNames18.includes('criminal_history_pdf_path')) {
+        db.run('ALTER TABLE suspects ADD COLUMN criminal_history_pdf_path TEXT');
+      }
+      saveDatabase();
+      safeLog('Migration 18 (suspect firearms/crim history) completed');
+    } catch (m18err) {
+      safeLog('Migration 18 error:', m18err);
+    }
+
+    // Migration 19: Add scars_marks_tattoos and license_plate to suspects
+    try {
+      const susColsRaw19 = db.exec("PRAGMA table_info(suspects)");
+      const susColNames19 = susColsRaw19.length > 0 ? susColsRaw19[0].values.map((r: any) => r[1]) : [];
+      if (!susColNames19.includes('scars_marks_tattoos')) {
+        db.run('ALTER TABLE suspects ADD COLUMN scars_marks_tattoos TEXT');
+      }
+      if (!susColNames19.includes('license_plate')) {
+        db.run('ALTER TABLE suspects ADD COLUMN license_plate TEXT');
+      }
+      saveDatabase();
+      safeLog('Migration 19 (suspect scars/tattoos + license_plate) completed');
+    } catch (m19err) {
+      safeLog('Migration 19 error:', m19err);
+    }
+
     safeLog('Database migrations completed');
   } catch (error) {
     safeLog('Migration error:', error);
