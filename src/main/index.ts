@@ -3461,6 +3461,10 @@ For questions about this export, contact the investigating officer.
           <div class="info-label">Eye Color</div>
           <div class="info-value">${suspect.eye_color || 'Unknown'}</div>
         </div>
+        <div class="info-item">
+          <div class="info-label">Scars / Marks / Tattoos</div>
+          <div class="info-value">${suspect.scars_marks_tattoos || 'None'}</div>
+        </div>
       </div>
     </div>
     
@@ -3501,7 +3505,75 @@ For questions about this export, contact the investigating officer.
           <div class="info-label">Color</div>
           <div class="info-value">${suspect.vehicle_color || 'Unknown'}</div>
         </div>
+        <div class="info-item" style="grid-column: 1 / -1;">
+          <div class="info-label">License Plate</div>
+          <div class="info-value">${suspect.license_plate || 'Unknown'}</div>
+        </div>
       </div>
+    </div>
+    
+    <!-- Registered Firearms -->
+    <div class="section">
+      <div class="section-title">
+        <span class="section-icon">🔫</span>
+        <span>Registered Firearms</span>
+      </div>
+      ${(() => {
+        const hasPdf = !!suspect.firearms_pdf_path;
+        let entries: any[] = [];
+        try { entries = suspect.firearms_info ? JSON.parse(suspect.firearms_info) : []; if (!Array.isArray(entries)) entries = []; } catch { entries = []; }
+        if (entries.length === 0 && !hasPdf) return '<div class="no-data">No registered firearms</div>';
+        let html = '';
+        if (entries.length > 0) {
+          html += '<div class="weapons-list">';
+          entries.forEach((f: any) => {
+            html += '<div class="weapon-item"><span class="weapon-bullet">▸</span><span>';
+            html += f.make_model || 'Unknown';
+            if (f.calibre) html += ' — ' + f.calibre;
+            if (f.serial_number) html += ' — S/N: ' + f.serial_number;
+            html += '</span></div>';
+          });
+          html += '</div>';
+        }
+        if (hasPdf) {
+          html += '<div style="margin-top: 10px; padding: 8px 12px; background: rgba(255, 167, 38, 0.1); border: 1px solid rgba(255, 167, 38, 0.3); border-radius: 6px; color: #FFA726; font-size: 13px; font-style: italic;">📎 See Attached — Firearms document appended to this report</div>';
+        }
+        return html;
+      })()}
+    </div>
+    
+    <!-- Criminal History -->
+    <div class="section">
+      <div class="section-title">
+        <span class="section-icon">📋</span>
+        <span>Criminal History</span>
+      </div>
+      ${(() => {
+        const hasPdf = !!suspect.criminal_history_pdf_path;
+        let entries: any[] = [];
+        try { entries = suspect.criminal_history ? JSON.parse(suspect.criminal_history) : []; if (!Array.isArray(entries)) entries = []; } catch { entries = []; }
+        if (entries.length === 0 && !hasPdf) return '<div class="no-data">No criminal history recorded</div>';
+        let html = '';
+        if (entries.length > 0) {
+          html += '<div class="weapons-list">';
+          entries.forEach((c: any) => {
+            html += '<div class="weapon-item" style="flex-direction: column; align-items: flex-start; gap: 2px;">';
+            html += '<div style="font-weight: 600;">' + (c.offense || 'Unknown offense') + '</div>';
+            const meta: string[] = [];
+            if (c.date) meta.push(c.date);
+            if (c.case_number) meta.push('#' + c.case_number);
+            if (meta.length) html += '<div style="font-size: 12px; color: #94A3C0;">' + meta.join(' · ') + '</div>';
+            if (c.sentence) html += '<div style="font-size: 12px; color: #94A3C0;">Sentence: ' + c.sentence + '</div>';
+            if (c.notes) html += '<div style="font-size: 11px; color: #6B7A94; font-style: italic; margin-top: 2px;">' + c.notes + '</div>';
+            html += '</div>';
+          });
+          html += '</div>';
+        }
+        if (hasPdf) {
+          html += '<div style="margin-top: 10px; padding: 8px 12px; background: rgba(255, 42, 109, 0.1); border: 1px solid rgba(255, 42, 109, 0.3); border-radius: 6px; color: #FF2A6D; font-size: 13px; font-style: italic;">📎 See Attached — Criminal history document appended to this report</div>';
+        }
+        return html;
+      })()}
     </div>
     
     ${weapons.length > 0 ? `
@@ -3626,9 +3698,49 @@ For questions about this export, contact the investigating officer.
       const downloadsPath = app.getPath('downloads');
       const filePath = path.join(downloadsPath, fileName);
       
-      // safeLog('Saving suspect PDF to:', filePath);
-      fs.writeFileSync(filePath, pdfData);
-      // safeLog('Suspect PDF saved successfully');
+      // Check if we need to append uploaded PDFs (firearms doc or rap sheet)
+      const attachPdfs: string[] = [];
+      if (suspect.firearms_pdf_path) {
+        const fullPath = path.join(getCasesPath(), suspect.firearms_pdf_path);
+        if (fs.existsSync(fullPath)) attachPdfs.push(fullPath);
+      }
+      if (suspect.criminal_history_pdf_path) {
+        const fullPath = path.join(getCasesPath(), suspect.criminal_history_pdf_path);
+        if (fs.existsSync(fullPath)) attachPdfs.push(fullPath);
+      }
+
+      if (attachPdfs.length > 0) {
+        // Merge main PDF with attached PDFs using pdf-lib
+        try {
+          const { PDFDocument } = require('pdf-lib');
+          const mergedPdf = await PDFDocument.create();
+
+          // Add main report pages
+          const mainDoc = await PDFDocument.load(pdfData);
+          const mainPages = await mergedPdf.copyPages(mainDoc, mainDoc.getPageIndices());
+          mainPages.forEach((p: any) => mergedPdf.addPage(p));
+
+          // Append each attached PDF
+          for (const attachPath of attachPdfs) {
+            try {
+              const attachBytes = fs.readFileSync(attachPath);
+              const attachDoc = await PDFDocument.load(attachBytes, { ignoreEncryption: true });
+              const attachPages = await mergedPdf.copyPages(attachDoc, attachDoc.getPageIndices());
+              attachPages.forEach((p: any) => mergedPdf.addPage(p));
+            } catch (mergeErr) {
+              safeLog('Failed to merge attached PDF:', attachPath, mergeErr);
+            }
+          }
+
+          const mergedBytes = await mergedPdf.save();
+          fs.writeFileSync(filePath, Buffer.from(mergedBytes));
+        } catch (mergeErr) {
+          safeLog('PDF merge failed, saving report without attachments:', mergeErr);
+          fs.writeFileSync(filePath, pdfData);
+        }
+      } else {
+        fs.writeFileSync(filePath, pdfData);
+      }
       
       printWindow.close();
       
