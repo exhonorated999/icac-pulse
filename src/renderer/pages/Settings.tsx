@@ -99,6 +99,89 @@ export function Settings() {
   const [secNewPw, setSecNewPw] = useState('');
   const [secNewPwConfirm, setSecNewPwConfirm] = useState('');
 
+  // ── OPS Plan Templates state ──
+  const [opsTemplateOpen, setOpsTemplateOpen] = useState(true);
+
+  // ── Registered User profile state ──
+  const [profileFullName, setProfileFullName] = useState(() => localStorage.getItem('userProfile_fullName') || '');
+  const [profileBadge, setProfileBadge] = useState(() => localStorage.getItem('userProfile_badgeNumber') || '');
+  const [profileAgency, setProfileAgency] = useState(() => localStorage.getItem('userProfile_agency') || '');
+  const [profileEmail, setProfileEmail] = useState(() => localStorage.getItem('userProfile_email') || '');
+  const [profileBadgeLogo, setProfileBadgeLogo] = useState(() => localStorage.getItem('userProfile_badgeLogo') || '');
+  const [profileRegistered, setProfileRegistered] = useState('');
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  interface OpsTeamMember { name: string; assignment: string; vehicle: string; callSign: string; }
+  const [opsTeam, setOpsTeam] = useState<OpsTeamMember[]>(() => {
+    try { return JSON.parse(localStorage.getItem('opsTemplate_entryTeam') || '[]'); } catch { return []; }
+  });
+  const [opsHospitalName, setOpsHospitalName] = useState(() => localStorage.getItem('opsTemplate_hospitalName') || '');
+  const [opsHospitalAddr, setOpsHospitalAddr] = useState(() => localStorage.getItem('opsTemplate_hospitalAddr') || '');
+  const [opsHospitalPhone, setOpsHospitalPhone] = useState(() => localStorage.getItem('opsTemplate_hospitalPhone') || '');
+  const [opsBriefingName, setOpsBriefingName] = useState(() => localStorage.getItem('opsTemplate_briefingName') || '');
+  const [opsBriefingAddr, setOpsBriefingAddr] = useState(() => localStorage.getItem('opsTemplate_briefingAddr') || '');
+  const [opsCommsChannel, setOpsCommsChannel] = useState(() => localStorage.getItem('opsTemplate_commsChannel') || '');
+  const [opsNotifications, setOpsNotifications] = useState(() => localStorage.getItem('opsTemplate_notifications') || '');
+  const [opsTacticalPlan, setOpsTacticalPlan] = useState(() => localStorage.getItem('opsTemplate_tacticalPlan') || '');
+  const [opsPursuitPlan, setOpsPursuitPlan] = useState(() => localStorage.getItem('opsTemplate_pursuitPlan') || '');
+  const [opsMedicalPlan, setOpsMedicalPlan] = useState(() => localStorage.getItem('opsTemplate_medicalPlan') || '');
+  const [opsBarricadePlan, setOpsBarricadePlan] = useState(() => localStorage.getItem('opsTemplate_barricadePlan') || '');
+  const [opsContingencyPlan, setOpsContingencyPlan] = useState(() => localStorage.getItem('opsTemplate_contingencyPlan') || '');
+  const [opsTemplateSaved, setOpsTemplateSaved] = useState(false);
+
+  const saveOpsTemplate = () => {
+    localStorage.setItem('opsTemplate_entryTeam', JSON.stringify(opsTeam));
+    localStorage.setItem('opsTemplate_hospitalName', opsHospitalName);
+    localStorage.setItem('opsTemplate_hospitalAddr', opsHospitalAddr);
+    localStorage.setItem('opsTemplate_hospitalPhone', opsHospitalPhone);
+    localStorage.setItem('opsTemplate_briefingName', opsBriefingName);
+    localStorage.setItem('opsTemplate_briefingAddr', opsBriefingAddr);
+    localStorage.setItem('opsTemplate_commsChannel', opsCommsChannel);
+    localStorage.setItem('opsTemplate_notifications', opsNotifications);
+    localStorage.setItem('opsTemplate_tacticalPlan', opsTacticalPlan);
+    localStorage.setItem('opsTemplate_pursuitPlan', opsPursuitPlan);
+    localStorage.setItem('opsTemplate_medicalPlan', opsMedicalPlan);
+    localStorage.setItem('opsTemplate_barricadePlan', opsBarricadePlan);
+    localStorage.setItem('opsTemplate_contingencyPlan', opsContingencyPlan);
+    setOpsTemplateSaved(true);
+    setTimeout(() => setOpsTemplateSaved(false), 2000);
+  };
+
+  const addOpsTeamMember = () => setOpsTeam(prev => [...prev, { name: '', assignment: '', vehicle: '', callSign: '' }]);
+
+  const saveUserProfile = () => {
+    localStorage.setItem('userProfile_fullName', profileFullName);
+    localStorage.setItem('userProfile_badgeNumber', profileBadge);
+    localStorage.setItem('userProfile_agency', profileAgency);
+    localStorage.setItem('userProfile_email', profileEmail);
+    localStorage.setItem('userProfile_badgeLogo', profileBadgeLogo);
+    if (!localStorage.getItem('userProfile_registeredDate')) {
+      localStorage.setItem('userProfile_registeredDate', new Date().toISOString());
+    }
+    // Dispatch event so Layout sidebar updates without page reload
+    window.dispatchEvent(new Event('userProfileUpdated'));
+    setProfileEditing(false);
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 2000);
+  };
+
+  const uploadBadgeLogo = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e: any) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => setProfileBadgeLogo(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+  const removeOpsTeamMember = (idx: number) => setOpsTeam(prev => prev.filter((_, i) => i !== idx));
+  const updateOpsTeamMember = (idx: number, field: keyof OpsTeamMember, value: string) =>
+    setOpsTeam(prev => prev.map((m, i) => i === idx ? { ...m, [field]: value } : m));
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -138,6 +221,18 @@ export function Settings() {
       // Check field security state
       const secState = await window.electronAPI.securityCheck();
       setSecEnabled(secState.enabled);
+
+      // Load registered date from user record
+      try {
+        const currentUser = await window.electronAPI.getCurrentUser();
+        if (currentUser?.created_at) {
+          setProfileRegistered(new Date(currentUser.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+        } else {
+          // Fallback: use stored date or today
+          const stored = localStorage.getItem('userProfile_registeredDate');
+          setProfileRegistered(stored || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+        }
+      } catch { /* non-critical */ }
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -806,6 +901,115 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
             </div>
           )}
 
+          {/* ═══════════════ Registered User ═══════════════ */}
+          <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-text-primary flex items-center gap-2">
+                <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Registered User
+              </h2>
+              {!profileEditing && (
+                <button onClick={() => setProfileEditing(true)}
+                  className="px-4 py-1.5 bg-accent-cyan/20 hover:bg-accent-cyan/30 border border-accent-cyan/40 rounded-lg text-accent-cyan text-sm font-medium transition flex items-center gap-1.5">
+                  ✏️ Edit
+                </button>
+              )}
+            </div>
+
+            {profileEditing ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Officer Name</label>
+                    <input value={profileFullName} onChange={e => setProfileFullName(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="Full Name" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Badge Number</label>
+                    <input value={profileBadge} onChange={e => setProfileBadge(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. 771" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Agency</label>
+                    <input value={profileAgency} onChange={e => setProfileAgency(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. Fontana PD" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Email</label>
+                    <input value={profileEmail} onChange={e => setProfileEmail(e.target.value)} type="email"
+                      className="w-full px-3 py-2 bg-background border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. officer@agency.gov" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted uppercase tracking-wide block mb-2">Badge / Logo</label>
+                  <div className="flex items-center gap-3">
+                    {profileBadgeLogo ? (
+                      <img src={profileBadgeLogo} alt="Badge" className="w-16 h-16 rounded-lg object-cover border border-accent-cyan/20" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-background border border-dashed border-accent-cyan/30 flex items-center justify-center text-text-muted/50 text-xs">No image</div>
+                    )}
+                    <button onClick={uploadBadgeLogo}
+                      className="px-3 py-1.5 bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30 rounded text-accent-cyan text-xs transition">Upload Image</button>
+                    {profileBadgeLogo && (
+                      <button onClick={() => setProfileBadgeLogo('')}
+                        className="px-3 py-1.5 bg-accent-pink/10 hover:bg-accent-pink/20 border border-accent-pink/30 rounded text-accent-pink text-xs transition">Remove</button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 pt-2">
+                  <button onClick={saveUserProfile}
+                    className="px-5 py-2 bg-accent-cyan/20 hover:bg-accent-cyan/30 border border-accent-cyan/40 rounded-lg text-accent-cyan text-sm font-semibold transition">
+                    💾 Save Profile
+                  </button>
+                  <button onClick={() => setProfileEditing(false)}
+                    className="px-4 py-2 text-text-muted hover:text-text-primary text-sm transition">Cancel</button>
+                  {profileSaved && <span className="text-status-success text-sm animate-pulse">✓ Profile saved</span>}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-background rounded-lg p-5 border border-accent-cyan/10">
+                <div className="flex items-center gap-5">
+                  {/* Initials avatar */}
+                  <div className="w-14 h-14 rounded-full bg-accent-cyan flex items-center justify-center text-background font-bold text-xl shrink-0">
+                    {profileFullName ? profileFullName.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase() : 'U'}
+                  </div>
+                  {/* Badge/Logo */}
+                  {profileBadgeLogo && (
+                    <img src={profileBadgeLogo} alt="Badge/Logo" className="w-14 h-14 rounded-lg object-cover border border-accent-cyan/20 shrink-0" />
+                  )}
+                  {/* Info grid */}
+                  <div className="flex-1 grid grid-cols-2 gap-x-12 gap-y-2">
+                    <div>
+                      <p className="text-xs text-text-muted">Officer Name</p>
+                      <p className="text-text-primary font-semibold">{profileFullName || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Badge Number</p>
+                      <p className="text-text-primary font-semibold">{profileBadge || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Agency</p>
+                      <p className="text-text-primary font-semibold">{profileAgency || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Email</p>
+                      <p className="text-text-primary font-semibold">{profileEmail || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Registered</p>
+                      <p className="text-text-primary font-semibold">{profileRegistered || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+                {!profileFullName && (
+                  <p className="text-text-muted/60 text-sm mt-3 italic">Click "Edit" to set up your officer profile. This info populates OPS Plans, reports, and the sidebar.</p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Theme Toggle */}
           <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
             <h2 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
@@ -900,6 +1104,181 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                 }`} />
               </button>
             </div>
+          </div>
+
+          {/* ═══════════════ OPS Plan Templates ═══════════════ */}
+          <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
+            <button
+              onClick={() => setOpsTemplateOpen(v => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-xl font-bold text-text-primary flex items-center gap-2">
+                <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                OPS Plan Templates
+              </h2>
+              <svg className={`w-5 h-5 text-text-muted transition-transform ${opsTemplateOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <p className="text-text-muted text-sm mt-1 mb-4">
+              Reusable data imported into Operations Plans across cases. Fill once, use everywhere.
+            </p>
+
+            {opsTemplateOpen && (
+              <div className="space-y-5">
+                {/* Entry Team Roster */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                      <span>👥</span> Entry Team Roster
+                    </h3>
+                    <button onClick={addOpsTeamMember}
+                      className="px-3 py-1 text-xs bg-accent-cyan/20 hover:bg-accent-cyan/30 border border-accent-cyan/40 rounded-lg text-accent-cyan font-medium transition">
+                      + Add Member
+                    </button>
+                  </div>
+                  {opsTeam.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_32px] gap-2 text-xs text-text-muted uppercase tracking-wide px-1">
+                        <span>Name</span><span>Assignment</span><span>Vehicle</span><span>Call Sign</span><span></span>
+                      </div>
+                      {opsTeam.map((m, i) => (
+                        <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_32px] gap-2">
+                          <input value={m.name} onChange={e => updateOpsTeamMember(i, 'name', e.target.value)}
+                            className="px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="Name" />
+                          <input value={m.assignment} onChange={e => updateOpsTeamMember(i, 'assignment', e.target.value)}
+                            className="px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="Assignment" />
+                          <input value={m.vehicle} onChange={e => updateOpsTeamMember(i, 'vehicle', e.target.value)}
+                            className="px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="Vehicle" />
+                          <input value={m.callSign} onChange={e => updateOpsTeamMember(i, 'callSign', e.target.value)}
+                            className="px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="Call Sign" />
+                          <button onClick={() => removeOpsTeamMember(i)}
+                            className="text-accent-pink hover:text-red-400 transition text-lg flex items-center justify-center">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {opsTeam.length === 0 && (
+                    <p className="text-text-muted/50 text-sm italic">No team members added. Click "+ Add Member" to start building your roster.</p>
+                  )}
+                </div>
+
+                {/* Hospital Information */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-3">
+                    <span>🏥</span> Hospital Information
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Hospital Name</label>
+                      <input value={opsHospitalName} onChange={e => setOpsHospitalName(e.target.value)}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. ARMC" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Address</label>
+                      <input value={opsHospitalAddr} onChange={e => setOpsHospitalAddr(e.target.value)}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="400 N Pepper Ave, Colton, CA 92324" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Phone</label>
+                      <input value={opsHospitalPhone} onChange={e => setOpsHospitalPhone(e.target.value)}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. (909) 427-5000" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Briefing Location */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-3">
+                    <span>📍</span> Briefing Location
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Location Name</label>
+                      <input value={opsBriefingName} onChange={e => setOpsBriefingName(e.target.value)}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. Fontana Police Department" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Address</label>
+                      <input value={opsBriefingAddr} onChange={e => setOpsBriefingAddr(e.target.value)}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="17005 Upland Ave. Fontana, Ca. 92336" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Communications / Radio */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-3">
+                    <span>📻</span> Communications / Radio
+                  </h3>
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Primary Channel / Frequency</label>
+                    <input value={opsCommsChannel} onChange={e => setOpsCommsChannel(e.target.value)}
+                      className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none" placeholder="e.g. 2FPD1" />
+                  </div>
+                </div>
+
+                {/* Notifications */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-3">
+                    <span>📞</span> Notifications
+                  </h3>
+                  <div>
+                    <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Who to notify prior to operation (one per line)</label>
+                    <textarea value={opsNotifications} onChange={e => setOpsNotifications(e.target.value)} rows={3}
+                      className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-none" placeholder="Watch Commander&#10;Dispatch" />
+                  </div>
+                </div>
+
+                {/* Boilerplate Plans */}
+                <div className="bg-background rounded-lg p-4 border border-accent-cyan/10">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-1">
+                    <span>📋</span> Boilerplate Plans
+                  </h3>
+                  <p className="text-text-muted/60 text-xs mb-4">Default text auto-filled into OPS Plans. Edit per-case as needed.</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Tactical Plan</label>
+                      <textarea value={opsTacticalPlan} onChange={e => setOpsTacticalPlan(e.target.value)} rows={4}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-y" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Pursuit Plan / Runners</label>
+                      <textarea value={opsPursuitPlan} onChange={e => setOpsPursuitPlan(e.target.value)} rows={4}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-y" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Medical Plan / Officer Down</label>
+                      <textarea value={opsMedicalPlan} onChange={e => setOpsMedicalPlan(e.target.value)} rows={4}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-y" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Barricade Plan</label>
+                      <textarea value={opsBarricadePlan} onChange={e => setOpsBarricadePlan(e.target.value)} rows={4}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-y" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted uppercase tracking-wide block mb-1">Contingency Plan</label>
+                      <textarea value={opsContingencyPlan} onChange={e => setOpsContingencyPlan(e.target.value)} rows={3}
+                        className="w-full px-3 py-2 bg-panel border border-accent-cyan/20 rounded text-text-primary text-sm focus:border-accent-cyan focus:outline-none resize-y" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Save button */}
+                <div className="flex items-center gap-3">
+                  <button onClick={saveOpsTemplate}
+                    className="px-5 py-2.5 bg-accent-cyan/20 hover:bg-accent-cyan/30 border border-accent-cyan/40 rounded-lg text-accent-cyan text-sm font-semibold transition flex items-center gap-2">
+                    💾 Save Templates
+                  </button>
+                  {opsTemplateSaved && (
+                    <span className="text-status-success text-sm animate-pulse">✓ Templates saved</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ═══════════════ Investigative Resources ═══════════════ */}

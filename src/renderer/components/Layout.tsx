@@ -11,6 +11,34 @@ interface LayoutProps {
   user: any;
 }
 
+/* ── Sidebar user info panel — reads profile from localStorage ── */
+function UserInfoSidebar({ user }: { user: any }) {
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem('userProfile_fullName') || user?.username || 'User');
+  const [role] = useState('Officer');
+
+  useEffect(() => {
+    const onUpdate = () => {
+      setDisplayName(localStorage.getItem('userProfile_fullName') || user?.username || 'User');
+    };
+    window.addEventListener('userProfileUpdated', onUpdate);
+    return () => window.removeEventListener('userProfileUpdated', onUpdate);
+  }, [user]);
+
+  const initials = displayName.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase() || 'U';
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-10 h-10 rounded-full bg-accent-cyan flex items-center justify-center">
+        <span className="text-background font-bold text-sm">{initials}</span>
+      </div>
+      <div>
+        <p className="text-sm font-medium text-text-primary">{displayName}</p>
+        <p className="text-xs text-text-muted">{role}</p>
+      </div>
+    </div>
+  );
+}
+
 // Neon Dashboard Icon Component (Orange Glow)
 const DashboardIcon = () => (
   <svg 
@@ -311,19 +339,7 @@ export function Layout({ children, user }: LayoutProps) {
 
         {/* User Info & Theme Toggle */}
         <div className="p-4 border-t border-accent-cyan/20 space-y-3 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-accent-cyan/20 flex items-center justify-center">
-              <span className="text-accent-cyan font-bold">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-text-primary">
-                {user?.username || 'User'}
-              </p>
-              <p className="text-xs text-text-muted">Officer</p>
-            </div>
-          </div>
+          <UserInfoSidebar user={user} />
           
           {/* Theme Toggle */}
           <ThemeToggle />

@@ -2708,7 +2708,7 @@ export function CaseDetail() {
         )}
 
         {activeTab === 'operations' && caseData && (
-          <OpPlanTab caseId={caseData.id} caseNumber={caseData.case_number} />
+          <OpPlanTab caseId={caseData.id} caseNumber={caseData.case_number} showToast={showToast} />
         )}
 
         {activeTab === 'report' && caseData && (

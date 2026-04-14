@@ -56,6 +56,11 @@ declare global {
       deleteSuspectPhoto: (photoId: number) => Promise<any>;
       getOpsPlan: (caseId: number) => Promise<any>;
       saveOpsPlan: (opPlanData: any) => Promise<any>;
+      saveOpsEntryTeam: (opsPlanId: number, team: any[]) => Promise<boolean>;
+      getOpsEntryTeam: (opsPlanId: number) => Promise<any[]>;
+      saveOpsResidents: (opsPlanId: number, residents: any[]) => Promise<boolean>;
+      getOpsResidents: (opsPlanId: number) => Promise<any[]>;
+      exportOpsPlanPdf: (data: any) => Promise<{ success: boolean; filePath?: string }>;
       getReport: (caseId: number) => Promise<any>;
       saveReport: (reportData: any) => Promise<any>;
       exportReportPDF: (data: any) => Promise<any>;

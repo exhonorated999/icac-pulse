@@ -132,6 +132,9 @@ export function ReportTab({ caseId, caseNumber }: ReportTabProps) {
       const result = await window.electronAPI.exportReportPDF({
         caseId: caseId,
         content: htmlContent,
+        officerName: localStorage.getItem('userProfile_fullName') || undefined,
+        agency: localStorage.getItem('userProfile_agency') || undefined,
+        badgeNumber: localStorage.getItem('userProfile_badgeNumber') || undefined,
       });
       
       // Restore focus after async operation

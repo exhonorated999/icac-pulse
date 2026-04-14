@@ -133,8 +133,13 @@ interface ElectronAPI {
   deleteWeapon: (id: number) => Promise<{ success: boolean; error?: string }>;
   
   // Operations Plan
-  saveOpsPlan: (caseId: number, filePath: string, caseNumber: string) => Promise<{ success: boolean; error?: string }>;
+  saveOpsPlan: (data: any) => Promise<any>;
   getOpsPlan: (caseId: number) => Promise<any>;
+  saveOpsEntryTeam: (opsPlanId: number, team: any[]) => Promise<boolean>;
+  getOpsEntryTeam: (opsPlanId: number) => Promise<any[]>;
+  saveOpsResidents: (opsPlanId: number, residents: any[]) => Promise<boolean>;
+  getOpsResidents: (opsPlanId: number) => Promise<any[]>;
+  exportOpsPlanPdf: (data: any) => Promise<{ success: boolean; filePath?: string }>;
   
   // Report
   saveReport: (caseId: number, content: string) => Promise<{ success: boolean; error?: string }>;

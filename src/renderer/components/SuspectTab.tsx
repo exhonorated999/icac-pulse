@@ -548,8 +548,9 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
         </div>
       </div>
 
-      {/* ── Identity Card (50% width) ─────────────────────────── */}
-      <div className="w-1/2">
+      {/* ── Identity + Physical Description — side by side ─────── */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* ── Identity Card ─────── */}
         <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
           <h3 className="text-base font-semibold text-accent-cyan mb-4">Identity</h3>
 
@@ -678,61 +679,62 @@ export function SuspectTab({ caseId, caseNumber, showToast }: SuspectTabProps) {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* ── Physical Description ─────────────────────────────── */}
-      <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5">
-        <p className="text-sm font-medium text-text-muted mb-3">Physical Description</p>
-        <div className="grid grid-cols-5 gap-3">
-          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
-            <label className="block text-xs font-medium text-text-muted mb-0.5">Height</label>
-            {editMode ? (
-              <input type="text" placeholder="e.g. 5'10&quot;" value={formData.height || ''}
-                onChange={(e) => setFormData({ ...formData, height: e.target.value })}
-                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
-            ) : (
-              <p className="text-text-primary text-sm font-medium">{suspect?.height || 'N/A'}</p>
-            )}
-          </div>
-          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
-            <label className="block text-xs font-medium text-text-muted mb-0.5">Weight</label>
-            {editMode ? (
-              <input type="text" placeholder="e.g. 180 lbs" value={formData.weight || ''}
-                onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
-            ) : (
-              <p className="text-text-primary text-sm font-medium">{suspect?.weight || 'N/A'}</p>
-            )}
-          </div>
-          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
-            <label className="block text-xs font-medium text-text-muted mb-0.5">Hair Color</label>
-            {editMode ? (
-              <input type="text" placeholder="e.g. Brown" value={formData.hair_color || ''}
-                onChange={(e) => setFormData({ ...formData, hair_color: e.target.value })}
-                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
-            ) : (
-              <p className="text-text-primary text-sm font-medium">{suspect?.hair_color || 'N/A'}</p>
-            )}
-          </div>
-          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
-            <label className="block text-xs font-medium text-text-muted mb-0.5">Eye Color</label>
-            {editMode ? (
-              <input type="text" placeholder="e.g. Blue" value={formData.eye_color || ''}
-                onChange={(e) => setFormData({ ...formData, eye_color: e.target.value })}
-                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
-            ) : (
-              <p className="text-text-primary text-sm font-medium">{suspect?.eye_color || 'N/A'}</p>
-            )}
-          </div>
-          <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
-            <label className="block text-xs font-medium text-text-muted mb-0.5">Scars / Marks / Tattoos</label>
-            {editMode ? (
-              <input type="text" placeholder="Description" value={formData.scars_marks_tattoos || ''}
-                onChange={(e) => setFormData({ ...formData, scars_marks_tattoos: e.target.value })}
-                className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
-            ) : (
-              <p className="text-text-primary text-sm font-medium">{suspect?.scars_marks_tattoos || 'N/A'}</p>
-            )}
+        {/* ── Physical Description Card ─────── */}
+        <div className="bg-panel border border-accent-cyan/20 rounded-lg p-5 flex flex-col">
+          <p className="text-sm font-medium text-text-muted mb-3">Physical Description</p>
+          <div className="grid grid-cols-2 gap-3 flex-1 content-start">
+            <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+              <label className="block text-xs font-medium text-text-muted mb-0.5">Height</label>
+              {editMode ? (
+                <input type="text" placeholder="e.g. 5'10&quot;" value={formData.height || ''}
+                  onChange={(e) => setFormData({ ...formData, height: e.target.value })}
+                  className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+              ) : (
+                <p className="text-text-primary text-sm font-medium">{suspect?.height || 'N/A'}</p>
+              )}
+            </div>
+            <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+              <label className="block text-xs font-medium text-text-muted mb-0.5">Weight</label>
+              {editMode ? (
+                <input type="text" placeholder="e.g. 180 lbs" value={formData.weight || ''}
+                  onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                  className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+              ) : (
+                <p className="text-text-primary text-sm font-medium">{suspect?.weight || 'N/A'}</p>
+              )}
+            </div>
+            <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+              <label className="block text-xs font-medium text-text-muted mb-0.5">Hair Color</label>
+              {editMode ? (
+                <input type="text" placeholder="e.g. Brown" value={formData.hair_color || ''}
+                  onChange={(e) => setFormData({ ...formData, hair_color: e.target.value })}
+                  className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+              ) : (
+                <p className="text-text-primary text-sm font-medium">{suspect?.hair_color || 'N/A'}</p>
+              )}
+            </div>
+            <div className="bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+              <label className="block text-xs font-medium text-text-muted mb-0.5">Eye Color</label>
+              {editMode ? (
+                <input type="text" placeholder="e.g. Blue" value={formData.eye_color || ''}
+                  onChange={(e) => setFormData({ ...formData, eye_color: e.target.value })}
+                  className="w-full bg-transparent text-text-primary text-sm focus:outline-none" />
+              ) : (
+                <p className="text-text-primary text-sm font-medium">{suspect?.eye_color || 'N/A'}</p>
+              )}
+            </div>
+            <div className="col-span-2 bg-background rounded-lg px-3 py-2 border border-accent-cyan/10">
+              <label className="block text-xs font-medium text-text-muted mb-0.5">Scars / Marks / Tattoos</label>
+              {editMode ? (
+                <textarea placeholder="Describe scars, marks, tattoos..." value={formData.scars_marks_tattoos || ''}
+                  onChange={(e) => setFormData({ ...formData, scars_marks_tattoos: e.target.value })}
+                  rows={3}
+                  className="w-full bg-transparent text-text-primary text-sm focus:outline-none resize-none" />
+              ) : (
+                <p className="text-text-primary text-sm font-medium">{suspect?.scars_marks_tattoos || 'N/A'}</p>
+              )}
+            </div>
           </div>
         </div>
       </div>

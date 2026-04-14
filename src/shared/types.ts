@@ -287,6 +287,11 @@ export const IPC_CHANNELS = {
   // Operations Plans
   SAVE_OPS_PLAN: 'save-ops-plan',
   GET_OPS_PLAN: 'get-ops-plan',
+  SAVE_OPS_ENTRY_TEAM: 'save-ops-entry-team',
+  GET_OPS_ENTRY_TEAM: 'get-ops-entry-team',
+  SAVE_OPS_RESIDENTS: 'save-ops-residents',
+  GET_OPS_RESIDENTS: 'get-ops-residents',
+  EXPORT_OPS_PLAN_PDF: 'export-ops-plan-pdf',
   
   // Reports
   SAVE_REPORT: 'save-report',

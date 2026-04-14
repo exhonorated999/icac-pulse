@@ -132,6 +132,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_OPS_PLAN, data),
   getOpsPlan: (caseId: number) => 
     ipcRenderer.invoke(IPC_CHANNELS.GET_OPS_PLAN, caseId),
+  saveOpsEntryTeam: (opsPlanId: number, team: any[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_OPS_ENTRY_TEAM, opsPlanId, team),
+  getOpsEntryTeam: (opsPlanId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_OPS_ENTRY_TEAM, opsPlanId),
+  saveOpsResidents: (opsPlanId: number, residents: any[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_OPS_RESIDENTS, opsPlanId, residents),
+  getOpsResidents: (opsPlanId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_OPS_RESIDENTS, opsPlanId),
+  exportOpsPlanPdf: (data: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_OPS_PLAN_PDF, data),
   
   // Reports
   saveReport: (caseId: number, content: string) => 
