@@ -3871,7 +3871,7 @@ For questions about this export, contact the investigating officer.
 
   ipcMain.handle(IPC_CHANNELS.EXPORT_OPS_PLAN_PDF, async (_event, data: any) => {
     try {
-      const { dialog, BrowserWindow } = require('electron');
+      const { dialog, BrowserWindow, shell } = require('electron');
       const result = await dialog.showSaveDialog({
         title: 'Export Operations Plan',
         defaultPath: `OPS_Plan_${data.caseNumber || 'export'}.pdf`,
@@ -3879,18 +3879,77 @@ For questions about this export, contact the investigating officer.
       });
       if (result.canceled || !result.filePath) return { success: false };
 
+      // Restore focus
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+
       // Create a hidden window to render HTML then print to PDF
       const printWin = new BrowserWindow({ show: false, width: 816, height: 1056, webPreferences: { offscreen: true } });
       await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(data.html)}`);
-      const pdfBuffer = await printWin.webContents.printToPDF({
+      // Wait for images to load
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const opsPdfBuffer = await printWin.webContents.printToPDF({
         printBackground: true,
         preferCSSPageSize: true,
         margins: { marginType: 'none' },
       });
       printWin.close();
 
-      const fs = require('fs');
-      fs.writeFileSync(result.filePath, pdfBuffer);
+      // If appendSuspectPdf is requested, generate suspect PDF and merge
+      const attachPdfBuffers: Buffer[] = [];
+      if (data.appendSuspectPdf && data.caseId) {
+        try {
+          // Get suspect data to generate their PDF inline
+          const suspect = db.prepare('SELECT * FROM suspects WHERE case_id = ?').get(data.caseId) as any;
+          if (suspect) {
+            // Check for attached PDFs (firearms doc, rap sheet)
+            if (suspect.firearms_pdf_path) {
+              const fullPath = path.join(getCasesPath(), suspect.firearms_pdf_path);
+              if (fs.existsSync(fullPath)) attachPdfBuffers.push(fs.readFileSync(fullPath));
+            }
+            if (suspect.criminal_history_pdf_path) {
+              const fullPath = path.join(getCasesPath(), suspect.criminal_history_pdf_path);
+              if (fs.existsSync(fullPath)) attachPdfBuffers.push(fs.readFileSync(fullPath));
+            }
+          }
+        } catch (suspErr) {
+          safeLog('Failed to gather suspect attachments for ops plan:', suspErr);
+        }
+      }
+
+      // Merge all PDFs using pdf-lib
+      if (attachPdfBuffers.length > 0) {
+        try {
+          const { PDFDocument } = require('pdf-lib');
+          const mergedPdf = await PDFDocument.create();
+
+          // Add ops plan pages
+          const opsDoc = await PDFDocument.load(opsPdfBuffer);
+          const opsPages = await mergedPdf.copyPages(opsDoc, opsDoc.getPageIndices());
+          opsPages.forEach((p: any) => mergedPdf.addPage(p));
+
+          // Append each attached PDF
+          for (const attachBuf of attachPdfBuffers) {
+            try {
+              const attachDoc = await PDFDocument.load(attachBuf, { ignoreEncryption: true });
+              const attachPages = await mergedPdf.copyPages(attachDoc, attachDoc.getPageIndices());
+              attachPages.forEach((p: any) => mergedPdf.addPage(p));
+            } catch (mergeErr) {
+              safeLog('Failed to merge attached PDF into ops plan:', mergeErr);
+            }
+          }
+
+          const mergedBytes = await mergedPdf.save();
+          fs.writeFileSync(result.filePath, Buffer.from(mergedBytes));
+        } catch (mergeErr) {
+          safeLog('Ops plan PDF merge failed, saving without attachments:', mergeErr);
+          fs.writeFileSync(result.filePath, opsPdfBuffer);
+        }
+      } else {
+        fs.writeFileSync(result.filePath, opsPdfBuffer);
+      }
+
+      // Show the file in explorer
+      shell.showItemInFolder(result.filePath);
       return { success: true, filePath: result.filePath };
     } catch (error) {
       throw error;

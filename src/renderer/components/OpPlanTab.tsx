@@ -97,12 +97,14 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
   const map2Ref = useRef<HTMLDivElement>(null);
   const leafletMap1 = useRef<L.Map | null>(null);
   const leafletMap2 = useRef<L.Map | null>(null);
+  const routeDataRestored = useRef(false);
   const [routeInfo1, setRouteInfo1] = useState<{ distance: string; duration: string } | null>(null);
   const [routeInfo2, setRouteInfo2] = useState<{ distance: string; duration: string } | null>(null);
   const [generatingRoutes, setGeneratingRoutes] = useState(false);
 
   /* ── Load ── */
   useEffect(() => {
+    routeDataRestored.current = false;
     loadOpsPlan();
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -133,6 +135,13 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
           location_photos: photos,
           approved: !!data.approved,
         });
+        // Parse and restore route_data
+        let parsedRouteData = null;
+        if (data.route_data) {
+          try {
+            parsedRouteData = typeof data.route_data === 'string' ? JSON.parse(data.route_data) : data.route_data;
+          } catch { /* ignore bad JSON */ }
+        }
         // Load entry team & residents
         if (data.id) {
           const team = await window.electronAPI.getOpsEntryTeam(data.id);
@@ -154,6 +163,16 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
       setLoading(false);
     }
   };
+
+  // Restore maps when plan.route_data changes and refs are ready
+  useEffect(() => {
+    if (!loading && plan.route_data && !routeDataRestored.current && map1Ref.current) {
+      routeDataRestored.current = true;
+      const rd = typeof plan.route_data === 'string' ? JSON.parse(plan.route_data) : plan.route_data;
+      // Small delay to ensure Leaflet containers are fully rendered
+      setTimeout(() => restoreRoutes(rd), 100);
+    }
+  }, [loading, plan.route_data]);
 
   /* ── Auto-save with debounce ── */
   const scheduleAutoSave = useCallback(() => {
@@ -354,6 +373,27 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     return map;
   };
 
+  /* ── Restore maps from saved route_data ── */
+  const restoreRoutes = (routeData: any) => {
+    if (!routeData) return;
+    try {
+      if (routeData.route1 && map1Ref.current) {
+        const { from, to, route } = routeData.route1;
+        if (leafletMap1.current) { leafletMap1.current.remove(); leafletMap1.current = null; }
+        leafletMap1.current = buildRouteMap(map1Ref.current, from, to, route, 'Briefing', 'Operation', '#FF2A6D');
+        setRouteInfo1({ distance: formatDistance(route.distance), duration: formatDuration(route.duration) });
+      }
+      if (routeData.route2 && map2Ref.current) {
+        const { from, to, route } = routeData.route2;
+        if (leafletMap2.current) { leafletMap2.current.remove(); leafletMap2.current = null; }
+        leafletMap2.current = buildRouteMap(map2Ref.current, from, to, route, 'Operation', 'Hospital', '#FFA726');
+        setRouteInfo2({ distance: formatDistance(route.distance), duration: formatDuration(route.duration) });
+      }
+    } catch (err) {
+      console.error('Failed to restore routes from saved data:', err);
+    }
+  };
+
   const generateRoutes = async () => {
     const briefingAddr = plan.briefing_location;
     const operationAddr = plan.location;
@@ -370,6 +410,7 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
       if (!opGeo) { showToast?.('Could not geocode operation location', 'error'); return; }
 
       let directionsText = '';
+      const savedRouteData: any = {};
 
       // Route 1: Briefing → Operation
       if (briefingAddr && map1Ref.current) {
@@ -382,6 +423,7 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
             setRouteInfo1({ distance: formatDistance(route1.distance), duration: formatDuration(route1.duration) });
             const steps1 = route1.legs[0]?.steps || [];
             directionsText += `BRIEFING → OPERATION (${formatDistance(route1.distance)}, ${formatDuration(route1.duration)}):\n${renderTurnByTurn(steps1)}\n\n`;
+            savedRouteData.route1 = { from: briefGeo, to: opGeo, route: route1 };
           }
         }
       }
@@ -397,11 +439,14 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
             setRouteInfo2({ distance: formatDistance(route2.distance), duration: formatDuration(route2.duration) });
             const steps2 = route2.legs[0]?.steps || [];
             directionsText += `OPERATION → HOSPITAL (${formatDistance(route2.distance)}, ${formatDuration(route2.duration)}):\n${renderTurnByTurn(steps2)}`;
+            savedRouteData.route2 = { from: opGeo, to: hospGeo, route: route2 };
           }
         }
       }
 
       if (directionsText) updateField('directions', directionsText);
+      // Persist route data so maps survive navigation
+      updateField('route_data', savedRouteData);
       showToast?.('Routes generated', 'success');
     } catch (err) {
       console.error('Route generation failed:', err);
@@ -419,219 +464,402 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     };
   }, []);
 
-  /* ── Generate Report ── */
+  /* ── Generate Report (VIPER-style format) ── */
   const generateReport = async () => {
     // Save first
     await savePlan();
 
     // Load suspect data for the report
     let suspect: any = null;
-    try {
-      suspect = await window.electronAPI.getSuspect(caseId);
-    } catch { /* no suspect data */ }
+    try { suspect = await window.electronAPI.getSuspect(caseId); } catch { /* no suspect data */ }
 
     let suspectPhotos: any[] = [];
+    try { if (suspect) suspectPhotos = await window.electronAPI.getSuspectPhotos(suspect.id); } catch { /* no photos */ }
+
+    // Load identifiers for suspect profile
+    let chatIds: any[] = [];
+    let otherIds: any[] = [];
+    try { chatIds = await window.electronAPI.getChatIdentifiers(caseId); } catch { /* none */ }
+    try { otherIds = await window.electronAPI.getOtherIdentifiers(caseId); } catch { /* none */ }
+
+    // Capture map images as base64 for the PDF
+    let mapImage1 = '';
+    let mapImage2 = '';
     try {
-      suspectPhotos = await window.electronAPI.getSuspectPhotos(caseId);
-    } catch { /* no photos */ }
+      if (map1Ref.current && leafletMap1.current) {
+        const canvas1 = map1Ref.current.querySelector('canvas') as HTMLCanvasElement;
+        if (canvas1) mapImage1 = canvas1.toDataURL('image/png');
+      }
+      if (map2Ref.current && leafletMap2.current) {
+        const canvas2 = map2Ref.current.querySelector('canvas') as HTMLCanvasElement;
+        if (canvas2) mapImage2 = canvas2.toDataURL('image/png');
+      }
+    } catch { /* CORS or canvas not available */ }
+
+    // If canvas capture failed, generate static map URLs from route_data
+    const rd = plan.route_data && typeof plan.route_data === 'object' ? plan.route_data : null;
+    if (!mapImage1 && rd?.route1) {
+      const r1 = rd.route1;
+      mapImage1 = `https://staticmap.openstreetmap.de/staticmap.php?center=${r1.from.lat},${r1.from.lng}&zoom=11&size=400x250&maptype=osmarenderer&markers=${r1.from.lat},${r1.from.lng},red-pushpin|${r1.to.lat},${r1.to.lng},blue-pushpin`;
+    }
+    if (!mapImage2 && rd?.route2) {
+      const r2 = rd.route2;
+      mapImage2 = `https://staticmap.openstreetmap.de/staticmap.php?center=${r2.from.lat},${r2.from.lng}&zoom=11&size=400x250&maptype=osmarenderer&markers=${r2.from.lat},${r2.from.lng},red-pushpin|${r2.to.lat},${r2.to.lng},blue-pushpin`;
+    }
 
     const d = plan;
+    const allOpTypes = ['Search Warrant', 'Arrest Warrant', 'Undercover Op', 'Surveillance', 'Buy/Bust', 'Probation/Parole', 'Knock & Talk', 'Other'];
     const opTypeStr = Object.entries(d.operation_type).filter(([, v]) => v).map(([k]) => k).join(', ') || '—';
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const nowStr = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const agency = localStorage.getItem('userProfile_agency') || '';
 
-    // Build TOC entries
+    // Build TOC entries — each plan section is its own entry (VIPER style)
     const toc: { id: string; label: string }[] = [];
-    toc.push({ id: 'ops-header', label: 'Operation Details' });
-    toc.push({ id: 'ops-hazards', label: 'Location & Hazards' });
-    toc.push({ id: 'ops-comms', label: 'Communications & Logistics' });
-    if (d.suspect_info) toc.push({ id: 'ops-suspectinfo', label: 'Suspect Information' });
-    if (residents.length > 0) toc.push({ id: 'ops-residents', label: 'Other Residents at Location' });
-    if (entryTeam.length > 0) toc.push({ id: 'ops-entryteam', label: 'Entry Team / Assignments' });
-    if (d.case_summary) toc.push({ id: 'ops-summary', label: 'Case Summary' });
-    toc.push({ id: 'ops-plans', label: 'Tactical & Contingency Plans' });
-    if (d.directions) toc.push({ id: 'ops-directions', label: 'Directions & Routes' });
-    if (d.location_photos?.length > 0) toc.push({ id: 'ops-photos', label: 'Location Photos' });
-    if (suspect) toc.push({ id: 'ops-suspectprofiles', label: 'Detailed Suspect Profiles' });
+    toc.push({ id: 'sec-opinfo', label: 'Operation Information' });
+    toc.push({ id: 'sec-hazards', label: 'Location & Hazards' });
+    if (d.suspect_info) toc.push({ id: 'sec-suspinfo', label: 'Suspect Information' });
+    if (residents.length > 0) toc.push({ id: 'sec-residents', label: 'Other Residents at Location' });
+    if (entryTeam.length > 0) toc.push({ id: 'sec-team', label: 'Entry Team / Assignments' });
+    toc.push({ id: 'sec-summary', label: 'Case Summary' });
+    if (d.tactical_plan) toc.push({ id: 'sec-tactical', label: 'Tactical Plan' });
+    if (d.pursuit_plan) toc.push({ id: 'sec-pursuit', label: 'Pursuit Plan / Runners' });
+    if (d.medical_plan) toc.push({ id: 'sec-medical', label: 'Medical Plan / Officer Down' });
+    if (d.barricade_plan) toc.push({ id: 'sec-barricade', label: 'Barricade Plan' });
+    if (d.contingency_plan) toc.push({ id: 'sec-contingency', label: 'Contingency Plan' });
+    if (d.directions) toc.push({ id: 'sec-directions', label: 'Directions & Routes' });
+    if (d.location_photos?.length > 0) toc.push({ id: 'sec-photos', label: 'Location Photos' });
+    if (suspect) toc.push({ id: 'sec-suspect', label: 'Detailed Suspect Profiles' });
 
     const esc = (s: string) => (s || '—').replace(/</g, '&lt;').replace(/\n/g, '<br>');
+
+    // Group photos by type
+    const sPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'suspect');
+    const vPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'vehicle');
+    const rPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'residence');
+
+    // Helper: section heading with numbered cyan badge
+    const secHead = (num: number, title: string, id: string, pageBreak = false) =>
+      `<div id="${id}" style="display:flex;align-items:center;gap:10px;margin:${pageBreak ? '0' : '36px'} 0 14px;${pageBreak ? 'page-break-before:always;padding-top:10px;' : ''}">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#00D4FF;color:#fff;font-weight:700;font-size:13px;flex-shrink:0">${num}</span>
+        <span style="font-size:20px;font-weight:700;color:#1a1a1a">${title}</span>
+      </div>
+      <hr style="border:none;border-top:3px solid #00D4FF;margin:0 0 16px">`;
+
+    // Helper: blockquote card (left cyan/red border)
+    const blockCard = (content: string, borderColor = '#00D4FF') =>
+      `<div style="border-left:4px solid ${borderColor};padding:14px 18px;margin:10px 0;background:#f8f9fa;border-radius:0 6px 6px 0">${content}</div>`;
+
+    // Parse route directions into two blocks
+    const dirLines = (d.directions || '').split('\n');
+    let dir1Lines: string[] = [];
+    let dir2Lines: string[] = [];
+    let currentBlock = 1;
+    for (const line of dirLines) {
+      if (line.includes('OPERATION → HOSPITAL') || line.includes('OPERATION →')) currentBlock = 2;
+      if (currentBlock === 1) dir1Lines.push(line);
+      else dir2Lines.push(line);
+    }
+
+    // Parse firearms & criminal history from suspect
+    let firearms: any[] = [];
+    let crimRecords: any[] = [];
+    if (suspect) {
+      try { firearms = suspect.firearms_info ? JSON.parse(suspect.firearms_info) : []; if (!Array.isArray(firearms)) firearms = []; } catch { firearms = []; }
+      try { crimRecords = suspect.criminal_history ? JSON.parse(suspect.criminal_history) : []; if (!Array.isArray(crimRecords)) crimRecords = []; } catch { crimRecords = []; }
+    }
+
+    let secNum = 0;
+    const nextSec = () => ++secNum;
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       @page { size: letter; margin: 0.75in; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; color: #1a1a1a; line-height: 1.5; }
       .cover { display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center; }
-      .cover h1 { font-size:36px;color:#00D4FF;margin-bottom:12px; }
-      .cover h2 { font-size:20px;color:#333;margin-bottom:6px; }
-      .cover .meta { font-size:14px;color:#666;margin-top:20px; }
-      .cover .badge { display:inline-block;padding:6px 18px;border:2px solid #FF2A6D;border-radius:20px;color:#FF2A6D;font-weight:700;font-size:14px;margin-top:16px; }
-      .toc { padding:40px 0; }
-      .toc h2 { font-size:22px;border-bottom:3px solid #00D4FF;padding-bottom:8px;margin-bottom:20px; }
-      .toc-item { display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dotted #ccc;font-size:14px; }
-      .toc-item a { color:#00D4FF;text-decoration:none; }
-      .section-header { font-size:20px;font-weight:700;border-bottom:3px solid #00D4FF;padding-bottom:6px;margin:30px 0 16px; }
+      .cover h1 { font-size:38px;font-weight:900;color:#1a1a1a;margin-bottom:8px;letter-spacing:1px; }
+      .cover .agency { font-size:18px;color:#666;margin-bottom:30px; }
+      .cover .meta-box { border-left:4px solid #333;padding:16px 24px;text-align:left;margin:20px auto;max-width:480px;width:100%; }
+      .cover .meta-box .ml { font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px; }
+      .cover .meta-box .mv { font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:12px; }
+      .cover .les { display:inline-block;padding:8px 28px;border:2px solid #dc2626;color:#dc2626;font-weight:700;font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-top:30px; }
+      .toc-page { page-break-before:always;padding:40px 0; }
+      .toc-title { font-size:22px;font-weight:700;border-bottom:3px solid #1a1a1a;padding-bottom:8px;margin-bottom:24px; }
+      .toc-item { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dotted #ccc;font-size:14px; }
+      .toc-num { color:#00D4FF;font-weight:700;font-size:15px;min-width:24px; }
       .field-row { display:flex;gap:16px;margin-bottom:10px; }
       .field-box { flex:1; }
-      .field-label { font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px; }
-      .field-value { font-size:14px;padding:6px 0;border-bottom:1px solid #e0e0e0;min-height:24px; }
-      .badge-type { display:inline-block;padding:3px 10px;border-radius:12px;background:#00D4FF22;color:#0891B2;font-size:12px;font-weight:600;margin-right:6px; }
+      .fl { font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px; }
+      .fv { font-size:14px;padding:6px 0;border-bottom:1px solid #e0e0e0;min-height:24px; }
+      .chk { display:inline-flex;align-items:center;gap:6px;margin-right:16px;margin-bottom:4px;font-size:13px; }
+      .chk-box { width:16px;height:16px;border:2px solid #333;border-radius:3px;display:inline-flex;align-items:center;justify-content:center; }
+      .chk-box.on { background:#00D4FF;border-color:#00D4FF; }
+      .chk-box.on::after { content:'✓';color:#fff;font-size:11px;font-weight:700; }
       table { width:100%;border-collapse:collapse;margin:12px 0; }
-      th { text-align:left;font-size:11px;text-transform:uppercase;color:#888;padding:6px 8px;border-bottom:2px solid #00D4FF; }
+      th { text-align:left;font-size:11px;text-transform:uppercase;color:#fff;background:#00D4FF;padding:8px;font-weight:700; }
       td { padding:8px;border-bottom:1px solid #eee;font-size:13px; }
-      .plan-card { border:1px solid #ddd;border-radius:8px;padding:16px;margin:10px 0; }
-      .plan-card h4 { font-size:14px;color:#00D4FF;margin-bottom:8px; }
-      .resident-card { border:1px solid #ddd;border-radius:8px;padding:14px;margin:8px 0;display:flex;gap:14px; }
-      .resident-photo { width:70px;height:70px;border-radius:8px;object-fit:cover; }
+      tr:nth-child(even) td { background:#f8f9fa; }
+      .photo-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:12px 0; }
+      .photo-grid img { width:100%;height:220px;object-fit:cover;border-radius:6px;border:1px solid #ddd; }
+      .photo-cap { text-align:center;font-size:11px;color:#666;margin-top:4px; }
       .warning-red { color:#dc2626;font-weight:700; }
-      .warning-orange { color:#d97706;font-weight:700; }
-      .suspect-profile { border:2px solid #ddd;border-radius:8px;padding:20px;margin:20px 0; }
-      .suspect-profile h3 { color:#00D4FF;margin-bottom:12px; }
-      .photo-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0; }
-      .photo-grid img { width:100%;height:180px;object-fit:cover;border-radius:6px; }
+      .warning-amber { color:#d97706;font-weight:700; }
+      .suspect-card { background:#f8f9fa;border-radius:8px;padding:20px;margin:16px 0; }
+      .suspect-header { background:#333;color:#fff;padding:12px 18px;border-radius:6px 6px 0 0;font-size:16px;font-weight:700; }
+      .sus-grid { display:flex;gap:20px;margin:16px 0; }
+      .sus-photo { width:140px;height:170px;object-fit:cover;border-radius:8px;border:2px solid #ddd; }
+      .sus-fields { flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px 16px; }
+      .id-row { display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #eee;font-size:13px; }
+      .id-badge { display:inline-block;padding:2px 8px;border-radius:4px;background:#00D4FF;color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;min-width:44px;text-align:center; }
+      .veh-card { display:flex;gap:14px;border:1px solid #ddd;border-radius:8px;padding:14px;margin:8px 0; }
+      .veh-photo { width:100px;height:70px;object-fit:cover;border-radius:6px; }
+      .sub-header { font-size:14px;font-weight:700;color:#00D4FF;text-transform:uppercase;border-bottom:2px solid #00D4FF;padding-bottom:4px;margin:20px 0 10px; }
+      .footer { text-align:center;color:#999;font-size:12px;margin-top:40px;padding-top:20px;border-top:2px solid #333; }
+      .route-pair { display:flex;gap:16px;margin:14px 0; }
+      .route-col { flex:1; }
+      .route-card { border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:10px; }
+      .route-card h4 { font-size:13px;font-weight:700;margin-bottom:6px; }
+      .route-card img { width:100%;height:200px;object-fit:cover;border-radius:6px;margin-bottom:8px; }
+      .dir-list { font-size:12px;line-height:1.7; }
     </style></head><body>
 
-    <!-- Cover -->
+    <!-- COVER PAGE -->
     <div class="cover">
       <h1>OPERATIONS PLAN</h1>
-      <h2>${esc(opTypeStr)}</h2>
-      <p style="font-size:16px;color:#555;margin-top:8px">${esc(d.location)}</p>
-      <div class="meta">
-        <p><strong>Case #:</strong> ${esc(d.report_number || caseNumber)}</p>
-        <p><strong>Case Agent:</strong> ${esc(d.case_agent)}</p>
-        <p><strong>Agency:</strong> ${esc(localStorage.getItem('userProfile_agency') || '')}</p>
-        <p><strong>Date:</strong> ${d.date || today} ${d.time ? '@ ' + d.time : ''}</p>
+      <p class="agency">${esc(agency)}</p>
+      <div class="meta-box">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px">
+          <div><div class="ml">Case Number</div><div class="mv">${esc(d.report_number || caseNumber)}</div></div>
+          <div><div class="ml">Date / Time</div><div class="mv">${esc(d.date || today)} ${d.time || ''}</div></div>
+          <div><div class="ml">Case Agent</div><div class="mv">${esc(d.case_agent)}</div></div>
+          <div><div class="ml">Operation Type</div><div class="mv">${esc(opTypeStr)}</div></div>
+          <div><div class="ml">Location</div><div class="mv">${esc(d.location)}</div></div>
+          <div><div class="ml">Generated</div><div class="mv">${today}</div></div>
+        </div>
       </div>
-      <div class="badge">LAW ENFORCEMENT SENSITIVE</div>
+      <div class="les">LAW ENFORCEMENT SENSITIVE</div>
     </div>
 
-    <!-- TOC -->
-    <div class="toc">
-      <h2>Table of Contents</h2>
-      ${toc.map((t, i) => `<div class="toc-item"><a href="#${t.id}">${i + 1}. ${t.label}</a></div>`).join('')}
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc-page">
+      <div class="toc-title">Table of Contents</div>
+      ${toc.map((t, i) => `<div class="toc-item"><span class="toc-num">${i + 1}</span><span>${t.label}</span></div>`).join('')}
     </div>
 
-    <!-- Operation Details -->
-    <div id="ops-header" class="section-header" style="page-break-before:always">Operation Details</div>
+    <!-- 1. Operation Information -->
+    ${secHead(nextSec(), 'Operation Information', 'sec-opinfo', true)}
     <div class="field-row">
-      <div class="field-box"><div class="field-label">Date</div><div class="field-value">${esc(d.date)}</div></div>
-      <div class="field-box"><div class="field-label">Time</div><div class="field-value">${esc(d.time)}</div></div>
-      <div class="field-box"><div class="field-label">Report #</div><div class="field-value">${esc(d.report_number || caseNumber)}</div></div>
-      <div class="field-box"><div class="field-label">Case Agent</div><div class="field-value">${esc(d.case_agent)}</div></div>
+      <div class="field-box"><div class="fl">Date</div><div class="fv">${esc(d.date)}</div></div>
+      <div class="field-box"><div class="fl">Time</div><div class="fv">${esc(d.time)}</div></div>
     </div>
-    <div style="margin:10px 0"><div class="field-label">Type of Operation</div><div style="margin-top:4px">${Object.entries(d.operation_type).filter(([, v]) => v).map(([k]) => `<span class="badge-type">${k}</span>`).join('') || '—'}</div></div>
+    <div class="field-row">
+      <div class="field-box"><div class="fl">Report Number</div><div class="fv">${esc(d.report_number || caseNumber)}</div></div>
+      <div class="field-box"><div class="fl">Case Agent</div><div class="fv">${esc(d.case_agent)}</div></div>
+    </div>
+    <div class="field-row">
+      <div class="field-box"><div class="fl">Communications</div><div class="fv">${esc(d.comms)}</div></div>
+      <div class="field-box"><div class="fl">Hospital</div><div class="fv">${esc(d.hospital)}</div></div>
+    </div>
+    <div style="margin:12px 0"><div class="fl">Type of Operation</div><div style="margin-top:6px;display:flex;flex-wrap:wrap">
+      ${allOpTypes.map(t => `<span class="chk"><span class="chk-box${d.operation_type[t] ? ' on' : ''}"></span>${t}</span>`).join('')}
+    </div></div>
+    ${d.notifications ? `<div style="margin:12px 0"><div class="fl">Notifications</div>${blockCard(esc(d.notifications))}</div>` : ''}
 
-    <!-- Location & Hazards -->
-    <div id="ops-hazards" class="section-header">Location & Hazards</div>
+    <!-- 2. Location & Hazards -->
+    ${secHead(nextSec(), 'Location & Hazards', 'sec-hazards')}
     <div class="field-row">
-      <div class="field-box"><div class="field-label">Location of Operation</div><div class="field-value">${esc(d.location)}</div></div>
-      <div class="field-box"><div class="field-label">Briefing Location</div><div class="field-value">${esc(d.briefing_location)}</div></div>
+      <div class="field-box"><div class="fl">Operation Location</div><div class="fv">${esc(d.location)}</div></div>
+      <div class="field-box"><div class="fl">Briefing Location</div><div class="fv">${esc(d.briefing_location)}</div></div>
     </div>
     <div class="field-row">
-      <div class="field-box"><div class="field-label">Fortifications</div><div class="field-value">${esc(d.fortifications)}</div></div>
-      <div class="field-box"><div class="field-label">Cameras</div><div class="field-value">${esc(d.cameras)}</div></div>
-      <div class="field-box"><div class="field-label">Dogs</div><div class="field-value">${esc(d.dogs)}</div></div>
-      <div class="field-box"><div class="field-label">Children Present</div><div class="field-value">${esc(d.children)}</div></div>
+      <div class="field-box"><div class="fl">Fortifications</div><div class="fv">${esc(d.fortifications)}</div></div>
+      <div class="field-box"><div class="fl">Cameras</div><div class="fv">${esc(d.cameras)}</div></div>
+      <div class="field-box"><div class="fl">Dogs</div><div class="fv">${esc(d.dogs)}</div></div>
+      <div class="field-box"><div class="fl">Children Present</div><div class="fv">${esc(d.children)}</div></div>
     </div>
-
-    <!-- Communications -->
-    <div id="ops-comms" class="section-header">Communications & Logistics</div>
     <div class="field-row">
-      <div class="field-box"><div class="field-label">Communications / Radio</div><div class="field-value">${esc(d.comms)}</div></div>
-      <div class="field-box"><div class="field-label">Hospital</div><div class="field-value">${esc(d.hospital)}</div></div>
-      <div class="field-box"><div class="field-label">Rally Point</div><div class="field-value">${esc(d.rally_point)}</div></div>
+      <div class="field-box"><div class="fl">Rally Point</div><div class="fv">${esc(d.rally_point)}</div></div>
     </div>
-    <div style="margin:10px 0"><div class="field-label">Notifications</div><div class="field-value">${esc(d.notifications)}</div></div>
 
     ${d.suspect_info ? `
-    <div id="ops-suspectinfo" class="section-header">Suspect Information</div>
-    <div class="field-value" style="white-space:pre-wrap;font-family:monospace;font-size:12px">${esc(d.suspect_info)}</div>
+    <!-- Suspect Information -->
+    ${secHead(nextSec(), 'Suspect Information', 'sec-suspinfo')}
+    ${blockCard(`<div style="white-space:pre-wrap;font-size:13px">${esc(d.suspect_info)}</div>`, '#dc2626')}
     ` : ''}
 
     ${residents.length > 0 ? `
-    <div id="ops-residents" class="section-header">Other Residents at Location</div>
+    <!-- Other Residents -->
+    ${secHead(nextSec(), 'Other Residents at Location', 'sec-residents')}
     ${residents.map(r => `
-      <div class="resident-card">
-        ${r.photo ? `<img src="${r.photo}" class="resident-photo" />` : ''}
+      <div style="border:1px solid #ddd;border-radius:8px;padding:14px;margin:10px 0;display:flex;gap:14px">
+        ${r.photo ? `<img src="${r.photo}" style="width:70px;height:70px;border-radius:8px;object-fit:cover" />` : ''}
         <div style="flex:1">
-          <p><strong>${esc(r.name)}</strong>${r.dob ? ` — DOB: ${esc(r.dob)}` : ''}</p>
-          ${r.hasFirearms ? `<p class="warning-red">⚠ FIREARMS: ${esc(r.firearms)}</p>` : ''}
-          ${r.hasCrimHistory ? `<p class="warning-orange">⚠ Criminal History: ${esc(r.crimHistory)}</p>` : ''}
+          <p style="font-weight:700">${esc(r.name)}</p>
+          ${r.dob ? `<p style="font-size:12px;color:#666">DOB: ${esc(r.dob)}</p>` : ''}
+          ${r.hasFirearms ? `<p class="warning-red">⚠ Firearms: ${esc(r.firearms)}</p>` : ''}
+          ${r.hasCrimHistory ? `<p class="warning-amber">Criminal History: ${esc(r.crimHistory)}</p>` : ''}
         </div>
       </div>
     `).join('')}
     ` : ''}
 
     ${entryTeam.length > 0 ? `
-    <div id="ops-entryteam" class="section-header">Entry Team / Assignments</div>
+    <!-- Entry Team -->
+    ${secHead(nextSec(), 'Entry Team / Assignments', 'sec-team')}
     <table>
       <thead><tr><th>Name</th><th>Assignment</th><th>Vehicle</th><th>Call Sign</th></tr></thead>
       <tbody>${entryTeam.map(m => `<tr><td>${esc(m.name)}</td><td>${esc(m.assignment)}</td><td>${esc(m.vehicle)}</td><td>${esc(m.callSign)}</td></tr>`).join('')}</tbody>
     </table>
     ` : ''}
 
-    ${d.case_summary ? `
-    <div id="ops-summary" class="section-header">Case Summary</div>
-    <div class="field-value" style="white-space:pre-wrap">${esc(d.case_summary)}</div>
+    <!-- Case Summary -->
+    ${secHead(nextSec(), 'Case Summary', 'sec-summary')}
+    ${d.case_summary ? blockCard(`<div style="white-space:pre-wrap">${esc(d.case_summary)}</div>`) : '<p style="color:#999;font-size:13px">No case summary entered.</p>'}
+
+    ${d.tactical_plan ? `
+    <!-- Tactical Plan -->
+    ${secHead(nextSec(), 'Tactical Plan', 'sec-tactical', true)}
+    ${blockCard(`<div style="white-space:pre-wrap">${esc(d.tactical_plan)}</div>`)}
     ` : ''}
 
-    <!-- Plans -->
-    <div id="ops-plans" class="section-header" style="page-break-before:always">Tactical & Contingency Plans</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${d.tactical_plan ? `<div class="plan-card"><h4>Tactical Plan</h4><p>${esc(d.tactical_plan)}</p></div>` : ''}
-      ${d.pursuit_plan ? `<div class="plan-card"><h4>Pursuit Plan / Runners</h4><p>${esc(d.pursuit_plan)}</p></div>` : ''}
-      ${d.medical_plan ? `<div class="plan-card"><h4>Medical Plan / Officer Down</h4><p>${esc(d.medical_plan)}</p></div>` : ''}
-      ${d.barricade_plan ? `<div class="plan-card"><h4>Barricade Plan</h4><p>${esc(d.barricade_plan)}</p></div>` : ''}
-    </div>
-    ${d.contingency_plan ? `<div class="plan-card" style="margin-top:12px"><h4>Contingency Plan</h4><p>${esc(d.contingency_plan)}</p></div>` : ''}
+    ${d.pursuit_plan ? `
+    <!-- Pursuit Plan -->
+    ${secHead(nextSec(), 'Pursuit Plan / Runners', 'sec-pursuit')}
+    ${blockCard(`<div style="white-space:pre-wrap">${esc(d.pursuit_plan)}</div>`)}
+    ` : ''}
+
+    ${d.medical_plan ? `
+    <!-- Medical Plan -->
+    ${secHead(nextSec(), 'Medical Plan / Officer Down', 'sec-medical')}
+    ${blockCard(`<div style="white-space:pre-wrap">${esc(d.medical_plan)}</div>`, '#dc2626')}
+    ` : ''}
+
+    ${d.barricade_plan ? `
+    <!-- Barricade Plan -->
+    ${secHead(nextSec(), 'Barricade Plan', 'sec-barricade')}
+    ${blockCard(`<div style="white-space:pre-wrap">${esc(d.barricade_plan)}</div>`)}
+    ` : ''}
+
+    ${d.contingency_plan ? `
+    <!-- Contingency Plan -->
+    ${secHead(nextSec(), 'Contingency Plan', 'sec-contingency')}
+    ${blockCard(`<div style="white-space:pre-wrap">${esc(d.contingency_plan)}</div>`)}
+    ` : ''}
 
     ${d.directions ? `
-    <div id="ops-directions" class="section-header" style="page-break-before:always">Directions & Routes</div>
-    <div class="field-value" style="white-space:pre-wrap">${esc(d.directions)}</div>
-    <div class="field-row" style="margin-top:12px">
-      <div class="plan-card" style="flex:1"><h4>📍 Briefing → Operation Location</h4>
-        <p style="font-size:12px;color:#333"><strong>From:</strong> ${esc(d.briefing_location)}</p>
-        <p style="font-size:12px;color:#333"><strong>To:</strong> ${esc(d.location)}</p>
+    <!-- Directions & Routes -->
+    ${secHead(nextSec(), 'Directions & Routes', 'sec-directions', true)}
+    <div class="route-pair">
+      <div class="route-col">
+        <div class="route-card">
+          <h4>📍 Briefing → Operation Location</h4>
+          <p style="font-size:12px"><strong>From:</strong> ${esc(d.briefing_location)}</p>
+          <p style="font-size:12px"><strong>To:</strong> ${esc(d.location)}</p>
+          ${routeInfo1 ? `<p style="font-size:12px;margin-top:4px">${routeInfo1.distance} · ${routeInfo1.duration}</p>` : ''}
+          ${mapImage1 ? `<img src="${mapImage1}" style="width:100%;height:200px;object-fit:cover;border-radius:6px;margin:8px 0" />` : ''}
+        </div>
       </div>
-      <div class="plan-card" style="flex:1"><h4>🏥 Operation Location → Hospital</h4>
-        <p style="font-size:12px;color:#333"><strong>From:</strong> ${esc(d.location)}</p>
-        <p style="font-size:12px;color:#333"><strong>To:</strong> ${esc(d.hospital)}</p>
+      <div class="route-col">
+        <div class="route-card">
+          <h4>🏥 Operation Location → Hospital</h4>
+          <p style="font-size:12px"><strong>From:</strong> ${esc(d.location)}</p>
+          <p style="font-size:12px"><strong>To:</strong> ${esc(d.hospital)}</p>
+          ${routeInfo2 ? `<p style="font-size:12px;margin-top:4px">${routeInfo2.distance} · ${routeInfo2.duration}</p>` : ''}
+          ${mapImage2 ? `<img src="${mapImage2}" style="width:100%;height:200px;object-fit:cover;border-radius:6px;margin:8px 0" />` : ''}
+        </div>
       </div>
     </div>
+    ${blockCard(`<div class="dir-list">${esc(d.directions)}</div>`)}
     ` : ''}
 
     ${d.location_photos?.length > 0 ? `
-    <div id="ops-photos" class="section-header" style="page-break-before:always">Location Photos</div>
+    <!-- Location Photos -->
+    ${secHead(nextSec(), 'Location Photos', 'sec-photos', true)}
     <div class="photo-grid">
-      ${d.location_photos.map(p => `<img src="${p.data}" alt="${p.caption || ''}" />`).join('')}
+      ${d.location_photos.map(p => `<div><img src="${p.data}" /><div class="photo-cap">${esc(p.caption || '')}</div></div>`).join('')}
     </div>
     ` : ''}
 
     ${suspect ? `
-    <div id="ops-suspectprofiles" class="section-header" style="page-break-before:always">Detailed Suspect Profiles</div>
-    <div class="suspect-profile">
-      <h3>${suspect.first_name || ''} ${suspect.last_name || ''}</h3>
-      <div class="field-row">
-        <div class="field-box"><div class="field-label">DOB</div><div class="field-value">${esc(suspect.dob || '')}</div></div>
-        <div class="field-box"><div class="field-label">Height</div><div class="field-value">${esc(suspect.height || '')}</div></div>
-        <div class="field-box"><div class="field-label">Weight</div><div class="field-value">${esc(suspect.weight || '')}</div></div>
+    <!-- Detailed Suspect Profiles -->
+    ${secHead(nextSec(), 'Detailed Suspect Profiles', 'sec-suspect', true)}
+    <div class="suspect-card">
+      <div class="suspect-header">Suspect 1: ${suspect.first_name || ''} ${suspect.last_name || ''}</div>
+      <div class="sus-grid">
+        ${sPhotos.length > 0 ? `<img src="${sPhotos[0].photo_data}" class="sus-photo" />` : '<div style="width:140px;height:170px;background:#e0e0e0;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">No Photo</div>'}
+        <div class="sus-fields">
+          <div><div class="fl">Name</div><div class="fv">${suspect.first_name || ''} ${suspect.last_name || ''}</div></div>
+          <div><div class="fl">Date of Birth</div><div class="fv">${esc(suspect.dob || '')}</div></div>
+          <div><div class="fl">Driver's License</div><div class="fv">${esc(suspect.drivers_license || '')}</div></div>
+          <div><div class="fl">Height / Weight</div><div class="fv">${suspect.height || '—'} / ${suspect.weight ? suspect.weight + ' lbs' : '—'}</div></div>
+          <div><div class="fl">Hair / Eyes</div><div class="fv">${suspect.hair_color || '—'} / ${suspect.eye_color || '—'}</div></div>
+          <div><div class="fl">Scars/Marks/Tattoos</div><div class="fv">${esc(suspect.scars_marks_tattoos || '')}</div></div>
+          <div><div class="fl">Address</div><div class="fv">${esc(suspect.address || '')}</div></div>
+          <div><div class="fl">Employer</div><div class="fv">${esc(suspect.workplace || '')}</div></div>
+        </div>
       </div>
-      <div class="field-row">
-        <div class="field-box"><div class="field-label">Hair</div><div class="field-value">${esc(suspect.hair_color || '')}</div></div>
-        <div class="field-box"><div class="field-label">Eyes</div><div class="field-value">${esc(suspect.eye_color || '')}</div></div>
-        <div class="field-box"><div class="field-label">Address</div><div class="field-value">${esc(suspect.address || '')}</div></div>
+
+      <!-- Identifiers -->
+      ${(chatIds.length > 0 || otherIds.length > 0) ? `
+      <div class="sub-header">Identifiers</div>
+      ${[...chatIds, ...otherIds].map((id: any) => `
+        <div class="id-row">
+          <span class="id-badge">${(id.identifier_type || 'other').toUpperCase()}</span>
+          <span>${esc(id.identifier_value || '')}${id.platform ? ' — ' + esc(id.platform) : ''}${id.provider ? ' (' + esc(id.provider) + ')' : ''}</span>
+        </div>
+      `).join('')}
+      ` : ''}
+
+      <!-- Vehicles -->
+      <div class="sub-header">Vehicles</div>
+      ${(suspect.vehicle_make || suspect.vehicle_model || suspect.vehicle_color) ? `
+      <div class="veh-card">
+        ${vPhotos.length > 0 ? `<img src="${vPhotos[0].photo_data}" class="veh-photo" />` : ''}
+        <div>
+          <p style="font-weight:700">${[suspect.vehicle_color, suspect.vehicle_make, suspect.vehicle_model].filter(Boolean).join(' ')}</p>
+          ${suspect.license_plate ? `<p style="font-size:12px;color:#666">Plate: ${esc(suspect.license_plate)}</p>` : ''}
+        </div>
       </div>
-      <div class="field-row">
-        <div class="field-box"><div class="field-label">Vehicle</div><div class="field-value">${[suspect.vehicle_color, suspect.vehicle_make, suspect.vehicle_model].filter(Boolean).join(' ') || '—'}</div></div>
-        <div class="field-box"><div class="field-label">License Plate</div><div class="field-value">${esc(suspect.license_plate || '')}</div></div>
-        <div class="field-box"><div class="field-label">Phone</div><div class="field-value">${esc(suspect.phone || '')}</div></div>
-      </div>
-      ${suspect.has_weapons ? '<p class="warning-red" style="margin-top:10px">⚠ ARMED — Weapons on file</p>' : ''}
+      ` : '<p style="color:#999;font-size:13px">No vehicle information on file</p>'}
+
+      <!-- Registered Firearms -->
+      <div class="sub-header">Registered Firearms</div>
+      ${firearms.length > 0 ? firearms.map((f: any) => `
+        <div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
+          ${esc(f.make_model || '')} ${f.calibre ? '· ' + esc(f.calibre) : ''} ${f.serial_number ? '· S/N: ' + esc(f.serial_number) : ''}
+        </div>
+      `).join('') : (suspect.firearms_pdf_path ? '<p style="font-size:13px">📎 See Attached</p>' : '<p style="color:#999;font-size:13px">No registered firearms on file</p>')}
+
+      <!-- Criminal History -->
+      <div class="sub-header">Criminal History</div>
+      ${crimRecords.length > 0 ? crimRecords.map((r: any) => `
+        <div style="padding:8px 0;border-bottom:1px solid #eee;font-size:13px">
+          <strong>${esc(r.offense || '')}</strong>${r.date ? ' — ' + esc(r.date) : ''}${r.case_number ? ' (Case: ' + esc(r.case_number) + ')' : ''}
+          ${r.sentence ? '<br><span style="color:#666">Sentence: ' + esc(r.sentence) + '</span>' : ''}
+          ${r.notes ? '<br><span style="color:#666">' + esc(r.notes) + '</span>' : ''}
+        </div>
+      `).join('') : (suspect.criminal_history_pdf_path ? '<p style="font-size:13px">📎 See Attached</p>' : '<p style="color:#999;font-size:13px">No criminal history on file</p>')}
+
+      <!-- Residence Photo -->
+      ${rPhotos.length > 0 ? `
+      <div class="sub-header">Residence Photo</div>
+      <img src="${rPhotos[0].photo_data}" style="width:340px;height:220px;object-fit:cover;border-radius:8px;border:1px solid #ddd" />
+      ` : ''}
+
+      ${suspect.has_weapons ? '<p class="warning-red" style="margin-top:16px;font-size:14px">⚠ ARMED — Weapons on file</p>' : ''}
     </div>
     ` : ''}
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>This document is the property of ${esc(agency)} and is intended for law enforcement use only.</p>
+      <p style="margin-top:4px">Generated by ICAC P.U.L.S.E. — ${nowStr}</p>
+    </div>
 
     </body></html>`;
 
     try {
-      const result = await window.electronAPI.exportOpsPlanPdf({ html, caseNumber });
+      const result = await window.electronAPI.exportOpsPlanPdf({ html, caseNumber, caseId, appendSuspectPdf: true });
       if (result?.success) {
         showToast?.(`PDF exported: ${result.filePath}`, 'success');
       }
@@ -649,13 +877,17 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
         const team = JSON.parse(teamJson);
         if (Array.isArray(team) && team.length > 0) setEntryTeam(team);
       }
-      const hospName = localStorage.getItem('opsTemplate_hospitalName') || '';
       const hospAddr = localStorage.getItem('opsTemplate_hospitalAddr') || '';
-      const hospPhone = localStorage.getItem('opsTemplate_hospitalPhone') || '';
       if (hospAddr) updateField('hospital', hospAddr);
 
-      const briefName = localStorage.getItem('opsTemplate_briefingName') || '';
-      const briefAddr = localStorage.getItem('opsTemplate_briefingAddr') || '';
+      // Strip "Name — " prefix from briefing address if present (only use the street address for geocoding)
+      let briefAddr = localStorage.getItem('opsTemplate_briefingAddr') || '';
+      if (briefAddr.includes(' — ')) briefAddr = briefAddr.split(' — ').slice(1).join(' — ').trim();
+      if (briefAddr.includes(' - ') && /^[A-Z]/.test(briefAddr)) {
+        // Also handle "Name - Address" with regular dash
+        const parts = briefAddr.split(' - ');
+        if (parts.length >= 2 && /\d/.test(parts[1])) briefAddr = parts.slice(1).join(' - ').trim();
+      }
       if (briefAddr) updateField('briefing_location', briefAddr);
 
       const comms = localStorage.getItem('opsTemplate_commsChannel') || '';
