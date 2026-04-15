@@ -329,6 +329,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   trclearSetVisible: (visible: boolean) => ipcRenderer.send('trclear-set-visible', visible),
   trclearReset: () => ipcRenderer.invoke('trclear-reset'),
 
+  // Accurint (LexisNexis)
+  accurintSetBounds: (bounds: any) => ipcRenderer.send('accurint-set-bounds', bounds),
+  accurintSetVisible: (visible: boolean) => ipcRenderer.send('accurint-set-visible', visible),
+  accurintReset: () => ipcRenderer.invoke('accurint-reset'),
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => ipcRenderer.invoke('byoa-create-view', { id, url }),
   byoaSetBounds: (id: string, bounds: any) => ipcRenderer.send('byoa-set-bounds', { id, bounds }),

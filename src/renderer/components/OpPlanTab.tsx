@@ -494,6 +494,7 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const nowStr = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     const agency = localStorage.getItem('userProfile_agency') || '';
+    const badgeLogo = localStorage.getItem('userProfile_badgeLogo') || '';
 
     // Build TOC entries — each plan section is its own entry (VIPER style)
     const toc: { id: string; label: string }[] = [];
@@ -593,6 +594,7 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
 
     <!-- COVER PAGE -->
     <div class="cover">
+      ${badgeLogo ? `<img src="${badgeLogo}" style="width:100px;height:100px;object-fit:contain;margin:0 auto 16px;display:block;border-radius:12px;" />` : ''}
       <h1>OPERATIONS PLAN</h1>
       <p class="agency">${esc(agency)}</p>
       <div class="meta-box">

@@ -108,6 +108,11 @@ interface ElectronAPI {
   trclearSetVisible: (visible: boolean) => void;
   trclearReset: () => Promise<void>;
 
+  // Accurint (LexisNexis)
+  accurintSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  accurintSetVisible: (visible: boolean) => void;
+  accurintReset: () => Promise<void>;
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => Promise<{ success: boolean }>;
   byoaSetBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;

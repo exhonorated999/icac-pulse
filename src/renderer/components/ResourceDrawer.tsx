@@ -69,6 +69,15 @@ const RESOURCES: Resource[] = [
       </svg>
     ),
   },
+  {
+    id: 'accurint', label: 'Accurint', enabledKey: 'accurintEnabled', isBV: true,
+    accent: 'orange', accentHex: '#f97316',
+    icon: (
+      <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+      </svg>
+    ),
+  },
 ];
 
 /* ── Load BYOA apps from localStorage ──────────────────────── */
@@ -107,6 +116,7 @@ export function ResourceDrawer() {
   const gridcopRef = useRef<HTMLDivElement>(null);
   const vigilantRef = useRef<HTMLDivElement>(null);
   const trclearRef = useRef<HTMLDivElement>(null);
+  const accurintRef = useRef<HTMLDivElement>(null);
   const byoaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rafRef = useRef<number | null>(null);
 
@@ -148,6 +158,7 @@ export function ResourceDrawer() {
     if (resId === 'gridcop') return gridcopRef.current;
     if (resId === 'vigilant') return vigilantRef.current;
     if (resId === 'trclear') return trclearRef.current;
+    if (resId === 'accurint') return accurintRef.current;
     if (resId.startsWith('byoa_')) return byoaRefs.current[resId] || null;
     return null;
   }, []);
@@ -167,11 +178,13 @@ export function ResourceDrawer() {
         flock: window.electronAPI.flockSetBounds, tlo: window.electronAPI.tloSetBounds,
         icaccops: window.electronAPI.icaccopsSetBounds, gridcop: window.electronAPI.gridcopSetBounds,
         vigilant: window.electronAPI.vigilantSetBounds, trclear: window.electronAPI.trclearSetBounds,
+        accurint: window.electronAPI.accurintSetBounds,
       };
       const setVisible: Record<string, (v: boolean) => void> = {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
         vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
+        accurint: window.electronAPI.accurintSetVisible,
       };
       setBounds[resId]?.(b);
       setVisible[resId]?.(true);
@@ -187,6 +200,7 @@ export function ResourceDrawer() {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
         vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
+        accurint: window.electronAPI.accurintSetVisible,
       };
       setVisible[resId]?.(false);
     }
@@ -471,6 +485,14 @@ export function ResourceDrawer() {
               <div ref={trclearRef} className="w-full h-full flex items-center justify-center"
                 style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
                 <p className="text-gray-600 text-xs">Loading Thomson Reuters CLEAR…</p>
+              </div>
+            </div>
+
+            {/* Accurint BrowserView placeholder */}
+            <div className={`absolute inset-0 ${activeTab === 'accurint' ? '' : 'hidden'}`}>
+              <div ref={accurintRef} className="w-full h-full flex items-center justify-center"
+                style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
+                <p className="text-gray-600 text-xs">Loading Accurint…</p>
               </div>
             </div>
 

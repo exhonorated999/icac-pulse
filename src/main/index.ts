@@ -49,6 +49,11 @@ let trclearBrowserView: BrowserView | null = null;
 let trclearViewVisible = false;
 let lastTrclearBounds: { x: number; y: number; width: number; height: number } | null = null;
 
+// Accurint (LexisNexis) BrowserView
+let accurintBrowserView: BrowserView | null = null;
+let accurintViewVisible = false;
+let lastAccurintBounds: { x: number; y: number; width: number; height: number } | null = null;
+
 // BYOA (Bring Your Own Application) dynamic BrowserViews
 interface ByoaEntry { view: BrowserView; visible: boolean; bounds: { x: number; y: number; width: number; height: number } | null; url: string; }
 const byoaViews = new Map<string, ByoaEntry>();
@@ -340,6 +345,41 @@ function createWindow() {
     }
   });
 
+  // ── Accurint (LexisNexis) BrowserView ──
+  accurintBrowserView = new BrowserView({
+    webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:accurint' },
+  });
+  mainWindow.addBrowserView(accurintBrowserView);
+  accurintBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  accurintBrowserView.setAutoResize({ width: false, height: false });
+  accurintBrowserView.webContents.on('did-finish-load', () => {
+    if (!accurintViewVisible && mainWindow) mainWindow.webContents.focus();
+    accurintBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    const url = accurintBrowserView!.webContents.getURL();
+    if (url.includes('accurint.com') && (url.includes('login') || url.includes('Login') || url.includes('signon') || url.includes('auth') || url.includes('/app/bps/main'))) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ u: localStorage.getItem('accurintUsername') || '', p: localStorage.getItem('accurintPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.u || creds.p) {
+          accurintBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="username"],input[name="Username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="email"]');
+                const passInput=document.querySelector('input[name="password"],input[name="Password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.u)});setVal(passInput,${JSON.stringify(creds.p)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
   // Reposition BrowserViews on window resize
   mainWindow.on('resize', () => {
     if (flockViewVisible && lastFlockBounds && flockBrowserView) flockBrowserView.setBounds(lastFlockBounds);
@@ -348,6 +388,7 @@ function createWindow() {
     if (gridcopViewVisible && lastGridcopBounds && gridcopBrowserView) gridcopBrowserView.setBounds(lastGridcopBounds);
     if (vigilantViewVisible && lastVigilantBounds && vigilantBrowserView) vigilantBrowserView.setBounds(lastVigilantBounds);
     if (trclearViewVisible && lastTrclearBounds && trclearBrowserView) trclearBrowserView.setBounds(lastTrclearBounds);
+    if (accurintViewVisible && lastAccurintBounds && accurintBrowserView) accurintBrowserView.setBounds(lastAccurintBounds);
     // BYOA views
     byoaViews.forEach((entry) => {
       if (entry.visible && entry.bounds) entry.view.setBounds(entry.bounds);
@@ -3149,8 +3190,10 @@ For questions about this export, contact the investigating officer.
   
   // Helper: generates suspect PDF as a Buffer (reused by ops plan export)
   async function generateSuspectPdfBuffer(caseId: number, caseNumber: string): Promise<Buffer | null> {
+    console.log('generateSuspectPdfBuffer called:', caseId, caseNumber);
     const user = db.prepare('SELECT * FROM users LIMIT 1').get() as any;
     const suspect = db.prepare('SELECT * FROM suspects WHERE case_id = ?').get(caseId) as any;
+    console.log('Suspect found:', suspect ? suspect.id : 'null');
     if (!suspect) return null;
 
     const weapons = db.prepare('SELECT * FROM weapons WHERE suspect_id = ?').all(suspect.id) as any[];
@@ -3727,7 +3770,7 @@ For questions about this export, contact the investigating officer.
           const mergedBytes = await mergedPdf.save();
           finalBuffer = Buffer.from(mergedBytes);
         } catch (mergeErr) {
-          safeLog('PDF merge failed, returning report without attachments:', mergeErr);
+          console.log('PDF merge failed, returning report without attachments:', mergeErr);
           finalBuffer = Buffer.from(pdfData);
         }
       } else {
@@ -3885,9 +3928,13 @@ For questions about this export, contact the investigating officer.
       printWin.close();
 
       // If appendSuspectPdf is requested, generate the full suspect PDF and merge
-      if (data.appendSuspectPdf && data.caseId) {
+      const numericCaseId = typeof data.caseId === 'string' ? parseInt(data.caseId, 10) : data.caseId;
+      console.log('Ops plan export: appendSuspectPdf=', data.appendSuspectPdf, 'caseId=', numericCaseId);
+      if (data.appendSuspectPdf && numericCaseId) {
         try {
-          const suspectPdfBuffer = await generateSuspectPdfBuffer(data.caseId, data.caseNumber || '');
+          console.log('Generating suspect PDF buffer...');
+          const suspectPdfBuffer = await generateSuspectPdfBuffer(numericCaseId, data.caseNumber || '');
+          console.log('Suspect PDF buffer result:', suspectPdfBuffer ? `${suspectPdfBuffer.length} bytes` : 'null');
           if (suspectPdfBuffer) {
             const { PDFDocument } = require('pdf-lib');
             const mergedPdf = await PDFDocument.create();
@@ -3908,7 +3955,7 @@ For questions about this export, contact the investigating officer.
             fs.writeFileSync(result.filePath, opsPdfBuffer);
           }
         } catch (mergeErr) {
-          safeLog('Ops plan + suspect PDF merge failed:', mergeErr);
+          console.log('Ops plan + suspect PDF merge failed:', mergeErr);
           fs.writeFileSync(result.filePath, opsPdfBuffer);
         }
       } else {
@@ -4832,6 +4879,35 @@ ${data.content}
     trclearBrowserView.webContents.loadURL('https://signon.thomsonreuters.com/?productid=MYATRTA&bhcp=1');
   });
 
+  /* ── Accurint (LexisNexis) IPC ──────────────────────────── */
+  ipcMain.on('accurint-set-bounds', (_event: any, bounds: any) => {
+    if (!accurintBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastAccurintBounds = b;
+    if (accurintViewVisible) accurintBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('accurint-set-visible', (_event: any, visible: boolean) => {
+    if (!accurintBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    accurintViewVisible = visible;
+    if (visible && lastAccurintBounds) {
+      const currentUrl = accurintBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        accurintBrowserView.webContents.loadURL('https://secure.accurint.com/app/bps/main?');
+      }
+      accurintBrowserView.setBounds(lastAccurintBounds);
+    } else if (!visible) {
+      accurintBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('accurint-reset', async () => {
+    if (!accurintBrowserView) return;
+    const ses = accurintBrowserView.webContents.session;
+    await ses.clearStorageData();
+    accurintBrowserView.webContents.loadURL('https://secure.accurint.com/app/bps/main?');
+  });
+
   /* ── BYOA (Bring Your Own Application) IPC ──────────────── */
   ipcMain.handle('byoa-create-view', (_event: any, { id, url }: { id: string; url: string }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
@@ -5501,7 +5577,7 @@ ${data.content}
 
       return { success: true };
     } catch (error) {
-      safeLog('open-chat-viewer error:', error);
+      console.log('open-chat-viewer error:', error);
       throw error;
     }
   });
@@ -5534,7 +5610,7 @@ ${data.content}
       saveDatabase();
       return { success: true };
     } catch (error) {
-      safeLog('save-chat-highlights error:', error);
+      console.log('save-chat-highlights error:', error);
       throw error;
     }
   });
@@ -5545,7 +5621,7 @@ ${data.content}
       const rows = db.prepare('SELECT * FROM chat_highlights WHERE evidence_id = ? ORDER BY id ASC').all(evidenceId);
       return rows || [];
     } catch (error) {
-      safeLog('load-chat-highlights error:', error);
+      console.log('load-chat-highlights error:', error);
       return [];
     }
   });
