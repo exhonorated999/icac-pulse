@@ -365,6 +365,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.ADD_SUSPECT_PHOTO, photoData),
   getSuspectPhotos: (suspectId: number) => 
     ipcRenderer.invoke(IPC_CHANNELS.GET_SUSPECT_PHOTOS, suspectId),
+  getSuspectPhotosBase64: (suspectId: number) => 
+    ipcRenderer.invoke(IPC_CHANNELS.GET_SUSPECT_PHOTOS_BASE64, suspectId),
   deleteSuspectPhoto: (photoId: number) => 
     ipcRenderer.invoke(IPC_CHANNELS.DELETE_SUSPECT_PHOTO, photoId),
   

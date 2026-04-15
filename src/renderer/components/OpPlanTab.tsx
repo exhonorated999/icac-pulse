@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { toPng } from 'html-to-image';
 
 /* ─────────────────────────── Types ─────────────────────────── */
 
@@ -474,7 +475,7 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     try { suspect = await window.electronAPI.getSuspect(caseId); } catch { /* no suspect data */ }
 
     let suspectPhotos: any[] = [];
-    try { if (suspect) suspectPhotos = await window.electronAPI.getSuspectPhotos(suspect.id); } catch { /* no photos */ }
+    try { if (suspect) suspectPhotos = await window.electronAPI.getSuspectPhotosBase64(suspect.id); } catch { /* no photos */ }
 
     // Load identifiers for suspect profile
     let chatIds: any[] = [];
@@ -482,30 +483,19 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     try { chatIds = await window.electronAPI.getChatIdentifiers(caseId); } catch { /* none */ }
     try { otherIds = await window.electronAPI.getOtherIdentifiers(caseId); } catch { /* none */ }
 
-    // Capture map images as base64 for the PDF
+    // Capture map images as base64 using html-to-image
     let mapImage1 = '';
     let mapImage2 = '';
     try {
       if (map1Ref.current && leafletMap1.current) {
-        const canvas1 = map1Ref.current.querySelector('canvas') as HTMLCanvasElement;
-        if (canvas1) mapImage1 = canvas1.toDataURL('image/png');
+        mapImage1 = await toPng(map1Ref.current, { cacheBust: true, quality: 0.9 });
       }
+    } catch (e) { console.warn('Map 1 capture failed:', e); }
+    try {
       if (map2Ref.current && leafletMap2.current) {
-        const canvas2 = map2Ref.current.querySelector('canvas') as HTMLCanvasElement;
-        if (canvas2) mapImage2 = canvas2.toDataURL('image/png');
+        mapImage2 = await toPng(map2Ref.current, { cacheBust: true, quality: 0.9 });
       }
-    } catch { /* CORS or canvas not available */ }
-
-    // If canvas capture failed, generate static map URLs from route_data
-    const rd = plan.route_data && typeof plan.route_data === 'object' ? plan.route_data : null;
-    if (!mapImage1 && rd?.route1) {
-      const r1 = rd.route1;
-      mapImage1 = `https://staticmap.openstreetmap.de/staticmap.php?center=${r1.from.lat},${r1.from.lng}&zoom=11&size=400x250&maptype=osmarenderer&markers=${r1.from.lat},${r1.from.lng},red-pushpin|${r1.to.lat},${r1.to.lng},blue-pushpin`;
-    }
-    if (!mapImage2 && rd?.route2) {
-      const r2 = rd.route2;
-      mapImage2 = `https://staticmap.openstreetmap.de/staticmap.php?center=${r2.from.lat},${r2.from.lng}&zoom=11&size=400x250&maptype=osmarenderer&markers=${r2.from.lat},${r2.from.lng},red-pushpin|${r2.to.lat},${r2.to.lng},blue-pushpin`;
-    }
+    } catch (e) { console.warn('Map 2 capture failed:', e); }
 
     const d = plan;
     const allOpTypes = ['Search Warrant', 'Arrest Warrant', 'Undercover Op', 'Surveillance', 'Buy/Bust', 'Probation/Parole', 'Knock & Talk', 'Other'];

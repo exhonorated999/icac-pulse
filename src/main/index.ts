@@ -3121,6 +3121,30 @@ For questions about this export, contact the investigating officer.
     }
   });
 
+  // Return suspect photos with base64 data embedded (for PDF generation in renderer)
+  ipcMain.handle(IPC_CHANNELS.GET_SUSPECT_PHOTOS_BASE64, async (_event, suspectId: number) => {
+    try {
+      const photos = db.prepare('SELECT * FROM suspect_photos WHERE suspect_id = ? ORDER BY photo_type, created_at').all(suspectId) as any[];
+      return (photos || []).map((p: any) => {
+        let photoData = '';
+        try {
+          if (p.photo_path) {
+            const fullPath = path.join(getCasesPath(), p.photo_path);
+            if (fs.existsSync(fullPath)) {
+              const buf = fs.readFileSync(fullPath);
+              const ext = path.extname(p.photo_path).toLowerCase();
+              const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+              photoData = `data:${mime};base64,${buf.toString('base64')}`;
+            }
+          }
+        } catch { /* skip unreadable */ }
+        return { ...p, photo_data: photoData };
+      });
+    } catch (error) {
+      throw error;
+    }
+  });
+
   // ========== Export Suspect PDF ==========
   
   ipcMain.handle(IPC_CHANNELS.EXPORT_SUSPECT_PDF, async (_event, caseId: number, caseNumber: string) => {

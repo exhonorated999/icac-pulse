@@ -127,6 +127,7 @@ interface ElectronAPI {
   getSuspectData: (caseId: number) => Promise<any>;
   uploadSuspectPhoto: (data: any) => Promise<{ success: boolean; error?: string }>;
   getSuspectPhotos: (caseId: number) => Promise<any[]>;
+  getSuspectPhotosBase64: (suspectId: number) => Promise<any[]>;
   deleteSuspectPhoto: (id: number) => Promise<{ success: boolean; error?: string }>;
   addWeapon: (suspectId: number, description: string) => Promise<{ success: boolean; error?: string }>;
   getWeapons: (suspectId: number) => Promise<any[]>;

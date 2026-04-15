@@ -47,6 +47,7 @@
     "bcrypt": "^6.0.0",
     "crypto-js": "^4.2.0",
     "electron-store": "^8.1.0",
+    "html-to-image": "^1.11.13",
     "jspdf": "^2.5.1",
     "leaflet": "^1.9.4",
     "node-machine-id": "^1.1.12",

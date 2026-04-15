@@ -281,6 +281,7 @@ export const IPC_CHANNELS = {
   DELETE_WEAPON: 'delete-weapon',
   ADD_SUSPECT_PHOTO: 'add-suspect-photo',
   GET_SUSPECT_PHOTOS: 'get-suspect-photos',
+  GET_SUSPECT_PHOTOS_BASE64: 'get-suspect-photos-base64',
   DELETE_SUSPECT_PHOTO: 'delete-suspect-photo',
   EXPORT_SUSPECT_PDF: 'export-suspect-pdf',
   
