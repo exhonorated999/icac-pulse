@@ -3147,49 +3147,29 @@ For questions about this export, contact the investigating officer.
 
   // ========== Export Suspect PDF ==========
   
-  ipcMain.handle(IPC_CHANNELS.EXPORT_SUSPECT_PDF, async (_event, caseId: number, caseNumber: string) => {
-    try {
-      const user = db.prepare('SELECT * FROM users LIMIT 1').get() as any;
-      
-      // Get suspect data
-      const suspect = db.prepare('SELECT * FROM suspects WHERE case_id = ?').get(caseId) as any;
-      
-      if (!suspect) {
-        throw new Error('No suspect data found for this case');
-      }
-      
-      // Get weapons
-      const weapons = db.prepare('SELECT * FROM weapons WHERE suspect_id = ?').all(suspect.id) as any[];
-      
-      // Get photos
-      const photos = db.prepare(`
-        SELECT * FROM suspect_photos 
-        WHERE suspect_id = ? 
-        ORDER BY photo_type, created_at
-      `).all(suspect.id) as any[];
-      
-      // Group photos by photo_type
-      const suspectPhotos = photos.filter(p => p.photo_type === 'suspect');
-      const vehiclePhotos = photos.filter(p => p.photo_type === 'vehicle');
-      const residencePhotos = photos.filter(p => p.photo_type === 'residence');
-      
-      // Helper to convert image to base64
-      const getImageBase64 = (photoPath: string | null | undefined) => {
-        try {
-          if (!photoPath) {
-            return '';
-          }
-          const fullPath = path.join(getCasesPath(), photoPath);
-          const imageBuffer = fs.readFileSync(fullPath);
-          const base64 = imageBuffer.toString('base64');
-          const ext = path.extname(photoPath).toLowerCase();
-          const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
-          return `data:${mimeType};base64,${base64}`;
-        } catch (error) {
-          // safeLog('Error reading image:', error);
-          return '';
-        }
-      };
+  // Helper: generates suspect PDF as a Buffer (reused by ops plan export)
+  async function generateSuspectPdfBuffer(caseId: number, caseNumber: string): Promise<Buffer | null> {
+    const user = db.prepare('SELECT * FROM users LIMIT 1').get() as any;
+    const suspect = db.prepare('SELECT * FROM suspects WHERE case_id = ?').get(caseId) as any;
+    if (!suspect) return null;
+
+    const weapons = db.prepare('SELECT * FROM weapons WHERE suspect_id = ?').all(suspect.id) as any[];
+    const photos = db.prepare('SELECT * FROM suspect_photos WHERE suspect_id = ? ORDER BY photo_type, created_at').all(suspect.id) as any[];
+    const suspectPhotos = photos.filter(p => p.photo_type === 'suspect');
+    const vehiclePhotos = photos.filter(p => p.photo_type === 'vehicle');
+    const residencePhotos = photos.filter(p => p.photo_type === 'residence');
+
+    const getImageBase64 = (photoPath: string | null | undefined) => {
+      try {
+        if (!photoPath) return '';
+        const fullPath = path.join(getCasesPath(), photoPath);
+        const imageBuffer = fs.readFileSync(fullPath);
+        const base64 = imageBuffer.toString('base64');
+        const ext = path.extname(photoPath).toLowerCase();
+        const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+        return `data:${mimeType};base64,${base64}`;
+      } catch { return ''; }
+    };
       
       // Create HTML
       const html = `
@@ -3717,12 +3697,7 @@ For questions about this export, contact the investigating officer.
         }
       });
       
-      // Save PDF
-      const fileName = `Case_${caseNumber}_Suspect_Report.pdf`;
-      const downloadsPath = app.getPath('downloads');
-      const filePath = path.join(downloadsPath, fileName);
-      
-      // Check if we need to append uploaded PDFs (firearms doc or rap sheet)
+      // Build final buffer — merge with attachment PDFs if present
       const attachPdfs: string[] = [];
       if (suspect.firearms_pdf_path) {
         const fullPath = path.join(getCasesPath(), suspect.firearms_pdf_path);
@@ -3733,63 +3708,54 @@ For questions about this export, contact the investigating officer.
         if (fs.existsSync(fullPath)) attachPdfs.push(fullPath);
       }
 
+      let finalBuffer: Buffer;
       if (attachPdfs.length > 0) {
-        // Merge main PDF with attached PDFs using pdf-lib
         try {
           const { PDFDocument } = require('pdf-lib');
           const mergedPdf = await PDFDocument.create();
-
-          // Add main report pages
           const mainDoc = await PDFDocument.load(pdfData);
           const mainPages = await mergedPdf.copyPages(mainDoc, mainDoc.getPageIndices());
           mainPages.forEach((p: any) => mergedPdf.addPage(p));
-
-          // Append each attached PDF
           for (const attachPath of attachPdfs) {
             try {
               const attachBytes = fs.readFileSync(attachPath);
               const attachDoc = await PDFDocument.load(attachBytes, { ignoreEncryption: true });
               const attachPages = await mergedPdf.copyPages(attachDoc, attachDoc.getPageIndices());
               attachPages.forEach((p: any) => mergedPdf.addPage(p));
-            } catch (mergeErr) {
-              safeLog('Failed to merge attached PDF:', attachPath, mergeErr);
-            }
+            } catch (mergeErr) { safeLog('Failed to merge attached PDF:', attachPath, mergeErr); }
           }
-
           const mergedBytes = await mergedPdf.save();
-          fs.writeFileSync(filePath, Buffer.from(mergedBytes));
+          finalBuffer = Buffer.from(mergedBytes);
         } catch (mergeErr) {
-          safeLog('PDF merge failed, saving report without attachments:', mergeErr);
-          fs.writeFileSync(filePath, pdfData);
+          safeLog('PDF merge failed, returning report without attachments:', mergeErr);
+          finalBuffer = Buffer.from(pdfData);
         }
       } else {
-        fs.writeFileSync(filePath, pdfData);
+        finalBuffer = Buffer.from(pdfData);
       }
-      
+
       printWindow.close();
-      
-      // Verify file exists
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`Failed to save PDF file: ${filePath}`);
-      }
-      
-      // Open Downloads folder and show the file
+      return finalBuffer;
+  }
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_SUSPECT_PDF, async (_event, caseId: number, caseNumber: string) => {
+    try {
+      const pdfBuffer = await generateSuspectPdfBuffer(caseId, caseNumber);
+      if (!pdfBuffer) throw new Error('No suspect data found for this case');
+
+      const fileName = `Case_${caseNumber}_Suspect_Report.pdf`;
+      const downloadsPath = app.getPath('downloads');
+      const filePath = path.join(downloadsPath, fileName);
+      fs.writeFileSync(filePath, pdfBuffer);
+
+      if (!fs.existsSync(filePath)) throw new Error(`Failed to save PDF file: ${filePath}`);
+
       const { shell } = require('electron');
-      // safeLog('Opening folder for:', filePath);
-      
-      // Use showItemInFolder to highlight the specific file in Explorer
       shell.showItemInFolder(filePath);
-      
-      // Also ensure the folder window comes to front by opening it
-      setTimeout(() => {
-        shell.openPath(downloadsPath);
-      }, 100);
-      
-      // safeLog('Folder opened');
-      
+      setTimeout(() => { shell.openPath(downloadsPath); }, 100);
+
       return { success: true, filePath };
     } catch (error) {
-      // safeLog('EXPORT_SUSPECT_PDF error:', error);
       throw error;
     }
   });
@@ -3918,54 +3884,31 @@ For questions about this export, contact the investigating officer.
       });
       printWin.close();
 
-      // If appendSuspectPdf is requested, generate suspect PDF and merge
-      const attachPdfBuffers: Buffer[] = [];
+      // If appendSuspectPdf is requested, generate the full suspect PDF and merge
       if (data.appendSuspectPdf && data.caseId) {
         try {
-          // Get suspect data to generate their PDF inline
-          const suspect = db.prepare('SELECT * FROM suspects WHERE case_id = ?').get(data.caseId) as any;
-          if (suspect) {
-            // Check for attached PDFs (firearms doc, rap sheet)
-            if (suspect.firearms_pdf_path) {
-              const fullPath = path.join(getCasesPath(), suspect.firearms_pdf_path);
-              if (fs.existsSync(fullPath)) attachPdfBuffers.push(fs.readFileSync(fullPath));
-            }
-            if (suspect.criminal_history_pdf_path) {
-              const fullPath = path.join(getCasesPath(), suspect.criminal_history_pdf_path);
-              if (fs.existsSync(fullPath)) attachPdfBuffers.push(fs.readFileSync(fullPath));
-            }
+          const suspectPdfBuffer = await generateSuspectPdfBuffer(data.caseId, data.caseNumber || '');
+          if (suspectPdfBuffer) {
+            const { PDFDocument } = require('pdf-lib');
+            const mergedPdf = await PDFDocument.create();
+
+            // Add ops plan pages
+            const opsDoc = await PDFDocument.load(opsPdfBuffer);
+            const opsPages = await mergedPdf.copyPages(opsDoc, opsDoc.getPageIndices());
+            opsPages.forEach((p: any) => mergedPdf.addPage(p));
+
+            // Append full suspect PDF (already includes photos + attachment PDFs)
+            const suspDoc = await PDFDocument.load(suspectPdfBuffer);
+            const suspPages = await mergedPdf.copyPages(suspDoc, suspDoc.getPageIndices());
+            suspPages.forEach((p: any) => mergedPdf.addPage(p));
+
+            const mergedBytes = await mergedPdf.save();
+            fs.writeFileSync(result.filePath, Buffer.from(mergedBytes));
+          } else {
+            fs.writeFileSync(result.filePath, opsPdfBuffer);
           }
-        } catch (suspErr) {
-          safeLog('Failed to gather suspect attachments for ops plan:', suspErr);
-        }
-      }
-
-      // Merge all PDFs using pdf-lib
-      if (attachPdfBuffers.length > 0) {
-        try {
-          const { PDFDocument } = require('pdf-lib');
-          const mergedPdf = await PDFDocument.create();
-
-          // Add ops plan pages
-          const opsDoc = await PDFDocument.load(opsPdfBuffer);
-          const opsPages = await mergedPdf.copyPages(opsDoc, opsDoc.getPageIndices());
-          opsPages.forEach((p: any) => mergedPdf.addPage(p));
-
-          // Append each attached PDF
-          for (const attachBuf of attachPdfBuffers) {
-            try {
-              const attachDoc = await PDFDocument.load(attachBuf, { ignoreEncryption: true });
-              const attachPages = await mergedPdf.copyPages(attachDoc, attachDoc.getPageIndices());
-              attachPages.forEach((p: any) => mergedPdf.addPage(p));
-            } catch (mergeErr) {
-              safeLog('Failed to merge attached PDF into ops plan:', mergeErr);
-            }
-          }
-
-          const mergedBytes = await mergedPdf.save();
-          fs.writeFileSync(result.filePath, Buffer.from(mergedBytes));
         } catch (mergeErr) {
-          safeLog('Ops plan PDF merge failed, saving without attachments:', mergeErr);
+          safeLog('Ops plan + suspect PDF merge failed:', mergeErr);
           fs.writeFileSync(result.filePath, opsPdfBuffer);
         }
       } else {

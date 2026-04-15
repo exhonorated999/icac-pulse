@@ -474,15 +474,6 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     let suspect: any = null;
     try { suspect = await window.electronAPI.getSuspect(caseId); } catch { /* no suspect data */ }
 
-    let suspectPhotos: any[] = [];
-    try { if (suspect) suspectPhotos = await window.electronAPI.getSuspectPhotosBase64(suspect.id); } catch { /* no photos */ }
-
-    // Load identifiers for suspect profile
-    let chatIds: any[] = [];
-    let otherIds: any[] = [];
-    try { chatIds = await window.electronAPI.getChatIdentifiers(caseId); } catch { /* none */ }
-    try { otherIds = await window.electronAPI.getOtherIdentifiers(caseId); } catch { /* none */ }
-
     // Capture map images as base64 using html-to-image
     let mapImage1 = '';
     let mapImage2 = '';
@@ -519,14 +510,9 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     if (d.contingency_plan) toc.push({ id: 'sec-contingency', label: 'Contingency Plan' });
     if (d.directions) toc.push({ id: 'sec-directions', label: 'Directions & Routes' });
     if (d.location_photos?.length > 0) toc.push({ id: 'sec-photos', label: 'Location Photos' });
-    if (suspect) toc.push({ id: 'sec-suspect', label: 'Detailed Suspect Profiles' });
+    if (suspect) toc.push({ id: 'sec-suspect', label: 'Suspect Intelligence Report (Attached)' });
 
     const esc = (s: string) => (s || '—').replace(/</g, '&lt;').replace(/\n/g, '<br>');
-
-    // Group photos by type
-    const sPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'suspect');
-    const vPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'vehicle');
-    const rPhotos = suspectPhotos.filter((p: any) => p.photo_type === 'residence');
 
     // Helper: section heading with numbered cyan badge
     const secHead = (num: number, title: string, id: string, pageBreak = false) =>
@@ -549,14 +535,6 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
       if (line.includes('OPERATION → HOSPITAL') || line.includes('OPERATION →')) currentBlock = 2;
       if (currentBlock === 1) dir1Lines.push(line);
       else dir2Lines.push(line);
-    }
-
-    // Parse firearms & criminal history from suspect
-    let firearms: any[] = [];
-    let crimRecords: any[] = [];
-    if (suspect) {
-      try { firearms = suspect.firearms_info ? JSON.parse(suspect.firearms_info) : []; if (!Array.isArray(firearms)) firearms = []; } catch { firearms = []; }
-      try { crimRecords = suspect.criminal_history ? JSON.parse(suspect.criminal_history) : []; if (!Array.isArray(crimRecords)) crimRecords = []; } catch { crimRecords = []; }
     }
 
     let secNum = 0;
@@ -771,73 +749,9 @@ export function OpPlanTab({ caseId, caseNumber, showToast }: OpPlanTabProps) {
     ` : ''}
 
     ${suspect ? `
-    <!-- Detailed Suspect Profiles -->
-    ${secHead(nextSec(), 'Detailed Suspect Profiles', 'sec-suspect', true)}
-    <div class="suspect-card">
-      <div class="suspect-header">Suspect 1: ${suspect.first_name || ''} ${suspect.last_name || ''}</div>
-      <div class="sus-grid">
-        ${sPhotos.length > 0 ? `<img src="${sPhotos[0].photo_data}" class="sus-photo" />` : '<div style="width:140px;height:170px;background:#e0e0e0;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">No Photo</div>'}
-        <div class="sus-fields">
-          <div><div class="fl">Name</div><div class="fv">${suspect.first_name || ''} ${suspect.last_name || ''}</div></div>
-          <div><div class="fl">Date of Birth</div><div class="fv">${esc(suspect.dob || '')}</div></div>
-          <div><div class="fl">Driver's License</div><div class="fv">${esc(suspect.drivers_license || '')}</div></div>
-          <div><div class="fl">Height / Weight</div><div class="fv">${suspect.height || '—'} / ${suspect.weight ? suspect.weight + ' lbs' : '—'}</div></div>
-          <div><div class="fl">Hair / Eyes</div><div class="fv">${suspect.hair_color || '—'} / ${suspect.eye_color || '—'}</div></div>
-          <div><div class="fl">Scars/Marks/Tattoos</div><div class="fv">${esc(suspect.scars_marks_tattoos || '')}</div></div>
-          <div><div class="fl">Address</div><div class="fv">${esc(suspect.address || '')}</div></div>
-          <div><div class="fl">Employer</div><div class="fv">${esc(suspect.workplace || '')}</div></div>
-        </div>
-      </div>
-
-      <!-- Identifiers -->
-      ${(chatIds.length > 0 || otherIds.length > 0) ? `
-      <div class="sub-header">Identifiers</div>
-      ${[...chatIds, ...otherIds].map((id: any) => `
-        <div class="id-row">
-          <span class="id-badge">${(id.identifier_type || 'other').toUpperCase()}</span>
-          <span>${esc(id.identifier_value || '')}${id.platform ? ' — ' + esc(id.platform) : ''}${id.provider ? ' (' + esc(id.provider) + ')' : ''}</span>
-        </div>
-      `).join('')}
-      ` : ''}
-
-      <!-- Vehicles -->
-      <div class="sub-header">Vehicles</div>
-      ${(suspect.vehicle_make || suspect.vehicle_model || suspect.vehicle_color) ? `
-      <div class="veh-card">
-        ${vPhotos.length > 0 ? `<img src="${vPhotos[0].photo_data}" class="veh-photo" />` : ''}
-        <div>
-          <p style="font-weight:700">${[suspect.vehicle_color, suspect.vehicle_make, suspect.vehicle_model].filter(Boolean).join(' ')}</p>
-          ${suspect.license_plate ? `<p style="font-size:12px;color:#666">Plate: ${esc(suspect.license_plate)}</p>` : ''}
-        </div>
-      </div>
-      ` : '<p style="color:#999;font-size:13px">No vehicle information on file</p>'}
-
-      <!-- Registered Firearms -->
-      <div class="sub-header">Registered Firearms</div>
-      ${firearms.length > 0 ? firearms.map((f: any) => `
-        <div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
-          ${esc(f.make_model || '')} ${f.calibre ? '· ' + esc(f.calibre) : ''} ${f.serial_number ? '· S/N: ' + esc(f.serial_number) : ''}
-        </div>
-      `).join('') : (suspect.firearms_pdf_path ? '<p style="font-size:13px">📎 See Attached</p>' : '<p style="color:#999;font-size:13px">No registered firearms on file</p>')}
-
-      <!-- Criminal History -->
-      <div class="sub-header">Criminal History</div>
-      ${crimRecords.length > 0 ? crimRecords.map((r: any) => `
-        <div style="padding:8px 0;border-bottom:1px solid #eee;font-size:13px">
-          <strong>${esc(r.offense || '')}</strong>${r.date ? ' — ' + esc(r.date) : ''}${r.case_number ? ' (Case: ' + esc(r.case_number) + ')' : ''}
-          ${r.sentence ? '<br><span style="color:#666">Sentence: ' + esc(r.sentence) + '</span>' : ''}
-          ${r.notes ? '<br><span style="color:#666">' + esc(r.notes) + '</span>' : ''}
-        </div>
-      `).join('') : (suspect.criminal_history_pdf_path ? '<p style="font-size:13px">📎 See Attached</p>' : '<p style="color:#999;font-size:13px">No criminal history on file</p>')}
-
-      <!-- Residence Photo -->
-      ${rPhotos.length > 0 ? `
-      <div class="sub-header">Residence Photo</div>
-      <img src="${rPhotos[0].photo_data}" style="width:340px;height:220px;object-fit:cover;border-radius:8px;border:1px solid #ddd" />
-      ` : ''}
-
-      ${suspect.has_weapons ? '<p class="warning-red" style="margin-top:16px;font-size:14px">⚠ ARMED — Weapons on file</p>' : ''}
-    </div>
+    <!-- Suspect Report follows as attached pages -->
+    ${secHead(nextSec(), 'Suspect Intelligence Report', 'sec-suspect', true)}
+    <p style="font-size:14px;color:#666;text-align:center;margin:40px 0">The full Suspect Intelligence Report — including photographs, identifiers, vehicle information, registered firearms, and criminal history — is attached as the following pages of this document.</p>
     ` : ''}
 
     <!-- Footer -->
