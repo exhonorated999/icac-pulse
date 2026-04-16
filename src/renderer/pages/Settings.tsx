@@ -140,6 +140,29 @@ export function Settings() {
   const [opsContingencyPlan, setOpsContingencyPlan] = useState(() => localStorage.getItem('opsTemplate_contingencyPlan') || '');
   const [opsTemplateSaved, setOpsTemplateSaved] = useState(false);
 
+  // Restore OPS template from file backup if localStorage was wiped (e.g. corrupted during update)
+  useEffect(() => {
+    const hasLocalData = localStorage.getItem('opsTemplate_hospitalName') || localStorage.getItem('opsTemplate_entryTeam');
+    if (hasLocalData) return; // localStorage is fine, nothing to restore
+    (window as any).electronAPI.loadOpsTemplateBackup().then((result: any) => {
+      if (!result?.success || !result.data) return;
+      const d = result.data;
+      if (d.entryTeam) { setOpsTeam(d.entryTeam); localStorage.setItem('opsTemplate_entryTeam', JSON.stringify(d.entryTeam)); }
+      if (d.hospitalName) { setOpsHospitalName(d.hospitalName); localStorage.setItem('opsTemplate_hospitalName', d.hospitalName); }
+      if (d.hospitalAddr) { setOpsHospitalAddr(d.hospitalAddr); localStorage.setItem('opsTemplate_hospitalAddr', d.hospitalAddr); }
+      if (d.hospitalPhone) { setOpsHospitalPhone(d.hospitalPhone); localStorage.setItem('opsTemplate_hospitalPhone', d.hospitalPhone); }
+      if (d.briefingName) { setOpsBriefingName(d.briefingName); localStorage.setItem('opsTemplate_briefingName', d.briefingName); }
+      if (d.briefingAddr) { setOpsBriefingAddr(d.briefingAddr); localStorage.setItem('opsTemplate_briefingAddr', d.briefingAddr); }
+      if (d.commsChannel) { setOpsCommsChannel(d.commsChannel); localStorage.setItem('opsTemplate_commsChannel', d.commsChannel); }
+      if (d.notifications) { setOpsNotifications(d.notifications); localStorage.setItem('opsTemplate_notifications', d.notifications); }
+      if (d.tacticalPlan) { setOpsTacticalPlan(d.tacticalPlan); localStorage.setItem('opsTemplate_tacticalPlan', d.tacticalPlan); }
+      if (d.pursuitPlan) { setOpsPursuitPlan(d.pursuitPlan); localStorage.setItem('opsTemplate_pursuitPlan', d.pursuitPlan); }
+      if (d.medicalPlan) { setOpsMedicalPlan(d.medicalPlan); localStorage.setItem('opsTemplate_medicalPlan', d.medicalPlan); }
+      if (d.barricadePlan) { setOpsBarricadePlan(d.barricadePlan); localStorage.setItem('opsTemplate_barricadePlan', d.barricadePlan); }
+      if (d.contingencyPlan) { setOpsContingencyPlan(d.contingencyPlan); localStorage.setItem('opsTemplate_contingencyPlan', d.contingencyPlan); }
+    }).catch(() => {});
+  }, []);
+
   const saveOpsTemplate = () => {
     localStorage.setItem('opsTemplate_entryTeam', JSON.stringify(opsTeam));
     localStorage.setItem('opsTemplate_hospitalName', opsHospitalName);
@@ -154,6 +177,14 @@ export function Settings() {
     localStorage.setItem('opsTemplate_medicalPlan', opsMedicalPlan);
     localStorage.setItem('opsTemplate_barricadePlan', opsBarricadePlan);
     localStorage.setItem('opsTemplate_contingencyPlan', opsContingencyPlan);
+    // Also persist to file backup in data directory (survives localStorage corruption)
+    (window as any).electronAPI.saveOpsTemplateBackup({
+      entryTeam: opsTeam, hospitalName: opsHospitalName, hospitalAddr: opsHospitalAddr,
+      hospitalPhone: opsHospitalPhone, briefingName: opsBriefingName, briefingAddr: opsBriefingAddr,
+      commsChannel: opsCommsChannel, notifications: opsNotifications, tacticalPlan: opsTacticalPlan,
+      pursuitPlan: opsPursuitPlan, medicalPlan: opsMedicalPlan, barricadePlan: opsBarricadePlan,
+      contingencyPlan: opsContingencyPlan,
+    }).catch(() => {});
     setOpsTemplateSaved(true);
     setTimeout(() => setOpsTemplateSaved(false), 2000);
   };

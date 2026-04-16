@@ -480,4 +480,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Bug Reports
   submitBugReport: (data: { title: string; description: string; steps_to_reproduce: string; severity: string }) =>
     ipcRenderer.invoke('submit-bug-report', data),
+
+  // OPS Template backup (survives localStorage corruption during updates)
+  saveOpsTemplateBackup: (data: Record<string, any>) =>
+    ipcRenderer.invoke('save-ops-template-backup', data),
+  loadOpsTemplateBackup: () =>
+    ipcRenderer.invoke('load-ops-template-backup'),
 });

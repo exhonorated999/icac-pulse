@@ -7168,6 +7168,35 @@ ${data.content}
       return { success: false, error: error.message };
     }
   });
-}
 
+  // OPS Template backup — persist to data directory so it survives localStorage corruption during updates
+  const OPS_BACKUP_FILE = 'ops_template_backup.json';
+
+  ipcMain.handle('save-ops-template-backup', async (_event, data: Record<string, any>) => {
+    try {
+      const dataPath = getUserDataPath();
+      const filePath = path.join(dataPath, OPS_BACKUP_FILE);
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to save OPS template backup:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('load-ops-template-backup', async () => {
+    try {
+      const dataPath = getUserDataPath();
+      const filePath = path.join(dataPath, OPS_BACKUP_FILE);
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, data: JSON.parse(raw) };
+      }
+      return { success: true, data: null };
+    } catch (error: any) {
+      console.error('Failed to load OPS template backup:', error.message);
+      return { success: false, data: null };
+    }
+  });
+}
 
