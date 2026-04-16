@@ -7131,41 +7131,34 @@ ${data.content}
   ipcMain.handle('install-app-update', async (_event, { installerPath }: { installerPath: string }) => {
     try {
       const appExePath = app.getPath('exe');
-      const tempDir = app.getPath('temp');
       const ts = Date.now();
-      const batchPath = path.join(tempDir, `icac-pulse-updater-${ts}.cmd`);
-      const vbsPath = path.join(tempDir, `icac-pulse-updater-${ts}.vbs`);
+      const ps1Path = path.join(app.getPath('temp'), `icac-pulse-updater-${ts}.ps1`);
 
-      // Batch script: wait for app exit → run installer silently → restart app → self-delete
-      const batchContent = [
-        '@echo off',
-        ':waitloop',
-        `tasklist /FI "PID eq ${process.pid}" 2>NUL | find /I "${process.pid}" >NUL`,
-        'if not errorlevel 1 (',
-        '  timeout /t 1 /nobreak >NUL',
-        '  goto waitloop',
-        ')',
-        `"${installerPath}" /S`,
-        'timeout /t 2 /nobreak >NUL',
-        `start "" "${appExePath}"`,
-        `del "${installerPath}" >NUL 2>&1`,
-        `del "${vbsPath}" >NUL 2>&1`,
-        'del "%~f0" >NUL 2>&1',
+      // PowerShell script: Wait-Process (event-based, no polling) → silent install → restart → cleanup
+      const psContent = [
+        `try { Wait-Process -Id ${process.pid} -Timeout 30 -ErrorAction SilentlyContinue } catch {}`,
+        'Start-Sleep -Seconds 1',
+        `Start-Process -FilePath '${installerPath.replace(/'/g, "''")}' -ArgumentList '/S' -Wait`,
+        'Start-Sleep -Seconds 2',
+        `Start-Process -FilePath '${appExePath.replace(/'/g, "''")}'`,
+        `Remove-Item -LiteralPath '${installerPath.replace(/'/g, "''")}' -Force -ErrorAction SilentlyContinue`,
+        `Remove-Item -LiteralPath '${ps1Path.replace(/'/g, "''")}' -Force -ErrorAction SilentlyContinue`,
       ].join('\r\n');
 
-      fs.writeFileSync(batchPath, batchContent, 'utf-8');
+      fs.writeFileSync(ps1Path, psContent, 'utf-8');
 
-      // VBS wrapper launches the batch script with a hidden window (0 = vbHide)
-      const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "cmd.exe /c ""${batchPath}""", 0, False`;
-      fs.writeFileSync(vbsPath, vbsContent, 'utf-8');
-
-      const child = spawn('wscript.exe', [vbsPath], {
+      const child = spawn('powershell.exe', [
+        '-WindowStyle', 'Hidden',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ps1Path
+      ], {
         detached: true,
         stdio: 'ignore',
+        windowsHide: true,
       });
       child.unref();
 
-      // Give the VBS script a moment to start, then quit
+      // Give PowerShell a moment to start, then quit
       setTimeout(() => {
         app.quit();
       }, 500);
