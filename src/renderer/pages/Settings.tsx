@@ -78,6 +78,10 @@ export function Settings() {
   const [byoaApps, setByoaApps] = useState<ByoaApp[]>(() => {
     try { return JSON.parse(localStorage.getItem('byoaApps') || '[]'); } catch { return []; }
   });
+
+  // Section collapse state
+  const [resourcesExpanded, setResourcesExpanded] = useState(true);
+  const [toolsExpanded, setToolsExpanded] = useState(true);
   const [byoaShowAdd, setByoaShowAdd] = useState(false);
   const [byoaNewLabel, setByoaNewLabel] = useState('');
   const [byoaNewUrl, setByoaNewUrl] = useState('');
@@ -1291,16 +1295,25 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
 
           {/* ═══════════════ Investigative Resources ═══════════════ */}
           <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-text-primary mb-2 flex items-center gap-2">
-              <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <button
+              onClick={() => setResourcesExpanded(v => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-xl font-bold text-text-primary flex items-center gap-2">
+                <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Investigative Resources
+              </h2>
+              <svg className={`w-5 h-5 text-text-muted transition-transform ${resourcesExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
-              Investigative Resources
-            </h2>
-            <p className="text-text-muted text-sm mb-5">
+            </button>
+            <p className="text-text-muted text-sm mt-1 mb-4">
               Enable external investigative platforms. When enabled, a magnifying glass button appears in the lower-right corner of the app — click it to open the resources drawer.
             </p>
 
+            {resourcesExpanded && (
             <div className="space-y-4">
               {/* ── Flock Safety ── */}
               <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
@@ -2249,6 +2262,7 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                 </div>
               )}
             </div>
+            )}
           </div>
 
           {/* Password Change (Portable Mode Only) */}
@@ -2495,17 +2509,26 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
 
           {/* Investigative Tools Information */}
           <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
-              <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            <button
+              onClick={() => setToolsExpanded(v => !v)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-xl font-bold text-text-primary flex items-center gap-2">
+                <svg className="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Investigative Tools & Features
+              </h2>
+              <svg className={`w-5 h-5 text-text-muted transition-transform ${toolsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
-              Investigative Tools & Features
-            </h2>
-            <p className="text-text-muted text-sm mb-6">
+            </button>
+            <p className="text-text-muted text-sm mt-1 mb-4">
               P.U.L.S.E. includes several investigative tools to assist with case work. Understanding their capabilities and limitations is important for effective use.
             </p>
             
+            {toolsExpanded && (
             <div className="space-y-6">
               {/* Email Verification */}
               <div className="bg-accent-cyan/5 rounded-lg p-4 border border-accent-cyan/30">
@@ -2666,6 +2689,7 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Field Security */}
