@@ -7131,39 +7131,41 @@ ${data.content}
   ipcMain.handle('install-app-update', async (_event, { installerPath }: { installerPath: string }) => {
     try {
       const appExePath = app.getPath('exe');
-      const batchPath = path.join(app.getPath('temp'), `icac-pulse-updater-${Date.now()}.cmd`);
+      const tempDir = app.getPath('temp');
+      const ts = Date.now();
+      const batchPath = path.join(tempDir, `icac-pulse-updater-${ts}.cmd`);
+      const vbsPath = path.join(tempDir, `icac-pulse-updater-${ts}.vbs`);
 
       // Batch script: wait for app exit → run installer silently → restart app → self-delete
       const batchContent = [
         '@echo off',
-        'echo ICAC P.U.L.S.E. Updater',
-        'echo Waiting for application to close...',
         ':waitloop',
         `tasklist /FI "PID eq ${process.pid}" 2>NUL | find /I "${process.pid}" >NUL`,
         'if not errorlevel 1 (',
         '  timeout /t 1 /nobreak >NUL',
         '  goto waitloop',
         ')',
-        'echo Installing update...',
         `"${installerPath}" /S`,
-        'echo Update installed. Starting application...',
         'timeout /t 2 /nobreak >NUL',
         `start "" "${appExePath}"`,
-        'echo Cleaning up...',
         `del "${installerPath}" >NUL 2>&1`,
+        `del "${vbsPath}" >NUL 2>&1`,
         'del "%~f0" >NUL 2>&1',
       ].join('\r\n');
 
       fs.writeFileSync(batchPath, batchContent, 'utf-8');
 
-      const child = spawn('cmd.exe', ['/c', batchPath], {
+      // VBS wrapper launches the batch script with a hidden window (0 = vbHide)
+      const vbsContent = `Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "cmd.exe /c ""${batchPath}""", 0, False`;
+      fs.writeFileSync(vbsPath, vbsContent, 'utf-8');
+
+      const child = spawn('wscript.exe', [vbsPath], {
         detached: true,
         stdio: 'ignore',
-        windowsHide: true,
       });
       child.unref();
 
-      // Give the batch script a moment to start, then quit
+      // Give the VBS script a moment to start, then quit
       setTimeout(() => {
         app.quit();
       }, 500);
