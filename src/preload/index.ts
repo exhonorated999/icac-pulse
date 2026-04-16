@@ -476,4 +476,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeUpdateDownloadProgressListener: () => {
     ipcRenderer.removeAllListeners('update-download-progress');
   },
+
+  // Bug Reports
+  submitBugReport: (data: { title: string; description: string; steps_to_reproduce: string; severity: string }) =>
+    ipcRenderer.invoke('submit-bug-report', data),
 });

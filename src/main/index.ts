@@ -7027,6 +7027,48 @@ ${data.content}
     return app.getVersion();
   });
 
+  // Bug Reports — POST to Intellect Dashboard
+  ipcMain.handle('submit-bug-report', async (_event, data: { title: string; description: string; steps_to_reproduce: string; severity: string; apiKey: string; reporterName: string }) => {
+    try {
+      const payload = JSON.stringify({
+        title: data.title,
+        description: data.description,
+        steps_to_reproduce: data.steps_to_reproduce,
+        severity: data.severity,
+        product_slug: 'icac-pulse',
+        reporter_name: data.reporterName || 'ICAC P.U.L.S.E. User',
+        app_version: app.getVersion(),
+      });
+
+      return await new Promise((resolve, reject) => {
+        const req = https.request('https://intellect-unified-dashboard-production.up.railway.app/api/bug-reports', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+            'X-API-Key': data.apiKey,
+          },
+        }, (res) => {
+          let body = '';
+          res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          res.on('end', () => {
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              try { resolve(JSON.parse(body)); } catch { resolve({ success: true }); }
+            } else {
+              reject(new Error(`Server returned ${res.statusCode}: ${body}`));
+            }
+          });
+        });
+        req.on('error', (err: Error) => reject(err));
+        req.write(payload);
+        req.end();
+      });
+    } catch (error) {
+      console.error('submit-bug-report error:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle('download-app-update', async (_event, { url }: { url: string }) => {
     const tempDir = app.getPath('temp');
     const installerPath = path.join(tempDir, `ICAC-PULSE-Update-${Date.now()}.exe`);

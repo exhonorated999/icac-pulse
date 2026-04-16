@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Logo } from './Logo';
 import { AllCasesIcon, SettingsIcon } from './DashboardIcons';
 import { ThemeToggle } from './ThemeToggle';
@@ -210,11 +210,180 @@ const OffenseIcon = () => (
   </svg>
 );
 
+/* ── Bug Report Modal ── */
+function BugReportModal({ onClose }: { onClose: () => void }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [steps, setSteps] = useState('');
+  const [severity, setSeverity] = useState('medium');
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !description.trim()) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      // Read registration for API key and reporter name
+      let apiKey = '';
+      let reporterName = '';
+      try {
+        const reg = JSON.parse(localStorage.getItem('icac_registration') || '{}');
+        apiKey = reg.apiKey || '';
+        reporterName = reg.name || '';
+      } catch {}
+      const res = await (window as any).electronAPI.submitBugReport({
+        title: title.trim(),
+        description: description.trim(),
+        steps_to_reproduce: steps.trim(),
+        severity,
+        apiKey,
+        reporterName,
+      });
+      setResult({ success: true, message: `Bug report submitted successfully${res?.bug_id ? ` (ID: ${res.bug_id})` : ''}.` });
+      setTimeout(() => onClose(), 2000);
+    } catch (err: any) {
+      setResult({ success: false, message: err?.message || 'Failed to submit bug report. Please try again.' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-panel border border-accent-cyan/30 rounded-xl shadow-2xl w-full max-w-lg mx-4
+                      shadow-accent-cyan/10">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-accent-cyan/20">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center">
+              <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0112 12.75zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 01-3.83-7.94M12 12.75c-2.883 0-5.647.508-8.207 1.44a23.91 23.91 0 003.83-7.94M12 12.75V8.25m0-4.5a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold text-text-primary">Report a Bug</h2>
+          </div>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {/* Title */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5">Title *</label>
+            <input
+              ref={titleRef}
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={300}
+              required
+              placeholder="Brief summary of the issue"
+              className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm
+                         placeholder-text-muted focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan/20"
+            />
+          </div>
+
+          {/* Severity */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5">Severity</label>
+            <select
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm
+                         focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan/20"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5">Description *</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+              rows={3}
+              placeholder="Describe what happened..."
+              className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm
+                         placeholder-text-muted focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan/20 resize-none"
+            />
+          </div>
+
+          {/* Steps to Reproduce */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5">Steps to Reproduce</label>
+            <textarea
+              value={steps}
+              onChange={(e) => setSteps(e.target.value)}
+              rows={3}
+              placeholder="1. Go to...&#10;2. Click on...&#10;3. See error..."
+              className="w-full px-3 py-2 bg-background border border-accent-cyan/30 rounded-lg text-text-primary text-sm
+                         placeholder-text-muted focus:outline-none focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan/20 resize-none"
+            />
+          </div>
+
+          {/* Result Message */}
+          {result && (
+            <div className={`text-sm px-3 py-2 rounded-lg ${result.success
+              ? 'bg-green-500/10 text-green-400 border border-green-500/30'
+              : 'bg-red-500/10 text-red-400 border border-red-500/30'}`}>
+              {result.message}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-text-muted hover:text-text-primary transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !title.trim() || !description.trim()}
+              className="px-5 py-2 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-sm font-medium
+                         hover:bg-red-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed
+                         flex items-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Submitting...
+                </>
+              ) : 'Submit Report'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children, user }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaEnabled, setMediaEnabled] = useState(() => localStorage.getItem('mediaPlayerEnabled') === 'true');
+  const [bugModalOpen, setBugModalOpen] = useState(false);
 
   // Listen for settings toggle and boss-key (Ctrl+Alt+M)
   useEffect(() => {
@@ -340,6 +509,19 @@ export function Layout({ children, user }: LayoutProps) {
         {/* User Info & Theme Toggle */}
         <div className="p-4 border-t border-accent-cyan/20 space-y-3 flex-shrink-0">
           <UserInfoSidebar user={user} />
+
+          {/* Report Bug */}
+          <button
+            onClick={() => setBugModalOpen(true)}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg transition-all
+                       bg-amber-500/10 border border-amber-500/30 text-amber-400
+                       hover:bg-amber-500/20 hover:border-amber-500/50"
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <span className="font-medium text-xs">Report a Bug</span>
+          </button>
           
           {/* Theme Toggle */}
           <ThemeToggle />
@@ -353,6 +535,9 @@ export function Layout({ children, user }: LayoutProps) {
 
       {/* Investigative Resources Drawer */}
       <ResourceDrawer />
+
+      {/* Bug Report Modal */}
+      {bugModalOpen && <BugReportModal onClose={() => setBugModalOpen(false)} />}
     </div>
   );
 }
