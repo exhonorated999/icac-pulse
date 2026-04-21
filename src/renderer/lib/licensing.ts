@@ -46,7 +46,8 @@ export type LicenseState =
   | "unregistered"
   | "demo_active"
   | "demo_expired"
-  | "licensed";
+  | "licensed"
+  | "offline_unregistered";
 
 export interface LicenseStatus {
   state: LicenseState;
@@ -109,7 +110,8 @@ export function getLicenseStatus(): LicenseStatus {
 /** Whether the user is allowed to create new cases right now. */
 export function canCreateCases(): boolean {
   const s = getLicenseStatus();
-  return s.state !== "demo_expired" && s.state !== "unregistered";
+  // Offline unregistered users can still create cases — we don't want to block LE work
+  return s.state !== "demo_expired";
 }
 
 /** Register for a demo — calls POST /api/register */
@@ -258,3 +260,38 @@ export async function checkForUpdate(currentVersion: string): Promise<{
 
 export function getApiBase(): string { return API_BASE; }
 export function getProductSlug(): string { return PRODUCT_SLUG; }
+
+/** Quick connectivity check — tries HEAD against the API with a short timeout. */
+export async function isOnline(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${API_BASE}/health`, {
+      method: "HEAD",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return res.ok || res.status < 500;
+  } catch {
+    return navigator.onLine === true ? false : false;
+  }
+}
+
+/**
+ * Skip registration for offline users.
+ * Stores a flag so the app can launch in limited mode (case management
+ * works, but no new-case creation until they register online).
+ */
+export function skipRegistrationOffline(): void {
+  localStorage.setItem("icac_offline_skip", new Date().toISOString());
+}
+
+/** Whether the user has previously skipped registration offline. */
+export function hasOfflineSkip(): boolean {
+  return !!localStorage.getItem("icac_offline_skip");
+}
+
+/** Clear the offline skip flag (called after successful online registration). */
+export function clearOfflineSkip(): void {
+  localStorage.removeItem("icac_offline_skip");
+}

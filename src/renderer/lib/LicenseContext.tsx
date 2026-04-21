@@ -5,6 +5,10 @@ import {
   registerDemo,
   activateLicense,
   checkForUpdate,
+  isOnline,
+  hasOfflineSkip,
+  skipRegistrationOffline,
+  clearOfflineSkip,
   type LicenseStatus,
   type RegistrationData,
 } from "./licensing";
@@ -38,7 +42,28 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     const s = getLicenseStatus();
     setStatus(s);
     if (s.state === "unregistered") {
-      setShowRegistration(true);
+      // Check if user previously skipped registration offline
+      if (hasOfflineSkip()) {
+        // Don't block the app — let them work offline until they get internet
+        setShowRegistration(false);
+      } else {
+        // Check connectivity: if offline, don't show blocking modal yet
+        isOnline().then((online) => {
+          if (!online) {
+            // Offline and never registered — allow limited use
+            skipRegistrationOffline();
+            setStatus({ ...s, state: "offline_unregistered" });
+            setShowRegistration(false);
+          } else {
+            setShowRegistration(true);
+          }
+        }).catch(() => {
+          // Can't determine — assume offline, don't block
+          skipRegistrationOffline();
+          setStatus({ ...s, state: "offline_unregistered" });
+          setShowRegistration(false);
+        });
+      }
     }
     // Fetch real version from main process
     window.electronAPI?.getAppVersion?.().then((v) => {
@@ -49,12 +74,27 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => {
     const s = getLicenseStatus();
     setStatus(s);
-    if (s.state === "unregistered") {
+    if (s.state === "unregistered" && !hasOfflineSkip()) {
       setShowRegistration(true);
     }
   }, []);
 
+  // Re-prompt registration when connectivity returns (for offline-skipped users)
+  useEffect(() => {
+    const handleOnline = () => {
+      const s = getLicenseStatus();
+      if (s.state === "unregistered" && hasOfflineSkip()) {
+        // User skipped registration while offline — now they have internet
+        clearOfflineSkip();
+        setShowRegistration(true);
+      }
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, []);
+
   const completeRegistration = useCallback((_data: RegistrationData) => {
+    clearOfflineSkip();
     setShowRegistration(false);
     refresh();
   }, [refresh]);

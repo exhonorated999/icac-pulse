@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -50,6 +50,13 @@ export function CaseTimeline({ caseId }: CaseTimelineProps) {
   const [editId, setEditId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; date: string; title: string; color: string } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ── Load events ──
   const loadEvents = useCallback(async () => {
@@ -99,14 +106,28 @@ export function CaseTimeline({ caseId }: CaseTimelineProps) {
   };
 
   const handleSaveEvent = async (data: any) => {
-    if (editId) {
-      await window.electronAPI.updateTimelineEvent(editId, data);
-    } else {
-      await window.electronAPI.addTimelineEvent({ ...data, case_id: caseId });
+    setSaveError(null);
+    try {
+      let result: any;
+      if (editId) {
+        result = await window.electronAPI.updateTimelineEvent(editId, data);
+      } else {
+        result = await window.electronAPI.addTimelineEvent({ ...data, case_id: caseId });
+      }
+      if (result && result.success === false) {
+        console.error('Timeline save failed:', result.error);
+        setSaveError('Failed to save timeline event. Please try again.');
+        return;
+      }
+      setShowModal(false);
+      setEditId(null);
+      if (mountedRef.current) {
+        await loadEvents();
+      }
+    } catch (err: any) {
+      console.error('Timeline save error:', err);
+      setSaveError(err.message || 'Failed to save timeline event.');
     }
-    setShowModal(false);
-    setEditId(null);
-    await loadEvents();
   };
 
   // ── Filtering ──
@@ -154,6 +175,13 @@ export function CaseTimeline({ caseId }: CaseTimelineProps) {
 
       {filtered.length > 0 ? (
         <>
+          {/* Save error banner */}
+          {saveError && (
+            <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between">
+              <span className="text-red-400 text-sm">{saveError}</span>
+              <button onClick={() => setSaveError(null)} className="text-red-400 hover:text-red-300 text-xs ml-4">✕</button>
+            </div>
+          )}
           {/* Filters + Zoom */}
           <div className="flex items-center gap-4 mb-4 text-sm flex-wrap">
             <div className="flex items-center gap-2">
@@ -333,7 +361,48 @@ function Swimlane({ events, allEvents, zoom, selectedId, onSelect, laneFilter, s
     return Math.max(0, Math.min(100, ((t - minT) / totalSpan) * 100));
   };
 
-  // Assign refs: lanes 0..N-1, time axis = N
+  // ── Cluster detection for overlapping dots ──
+  // Dots within this % threshold are considered overlapping
+  const CLUSTER_THRESHOLD = 0.8; // percent of total track width
+
+  function computeOffsets(laneEvents: TimelineEvent[]): Map<number, number> {
+    const offsets = new Map<number, number>();
+    if (!laneEvents.length) return offsets;
+
+    // Sort by position
+    const sorted = [...laneEvents].sort((a, b) => evtPos(a) - evtPos(b));
+    
+    // Group into clusters
+    const clusters: TimelineEvent[][] = [];
+    let current: TimelineEvent[] = [sorted[0]];
+    
+    for (let i = 1; i < sorted.length; i++) {
+      const prevPct = evtPos(current[current.length - 1]);
+      const curPct = evtPos(sorted[i]);
+      if (curPct - prevPct < CLUSTER_THRESHOLD) {
+        current.push(sorted[i]);
+      } else {
+        clusters.push(current);
+        current = [sorted[i]];
+      }
+    }
+    clusters.push(current);
+
+    // For each cluster, assign vertical offsets (pixels from center)
+    for (const cluster of clusters) {
+      if (cluster.length <= 1) {
+        offsets.set(cluster[0].id, 0);
+        continue;
+      }
+      // Spread events vertically within lane (lane height = 80px, center = 0)
+      const spacing = Math.min(18, 50 / cluster.length);
+      const startOffset = -((cluster.length - 1) * spacing) / 2;
+      cluster.forEach((evt, i) => {
+        offsets.set(evt.id, startOffset + i * spacing);
+      });
+    }
+    return offsets;
+  }
 
   return (
     <div className="rounded-lg border border-gray-700 flex" style={{ background: 'rgba(15,15,20,0.6)' }}>
@@ -363,6 +432,7 @@ function Swimlane({ events, allEvents, zoom, selectedId, onSelect, laneFilter, s
           {activeLanes.map((laneKey) => {
             const lane = LANES[laneKey];
             const laneEvents = events.filter(e => e.lane === laneKey);
+            const offsets = computeOffsets(laneEvents);
             return (
               <div key={laneKey} className="border-b border-gray-700/50" style={{ minHeight: 80 }}>
                 <div className="relative" style={{ minWidth: trackWidth, height: '100%', minHeight: 80 }}>
@@ -375,6 +445,7 @@ function Swimlane({ events, allEvents, zoom, selectedId, onSelect, laneFilter, s
                   {/* Event dots */}
                   {laneEvents.map(evt => {
                     const pct = evtPos(evt);
+                    const yOffset = offsets.get(evt.id) || 0;
                     const isMajor = evt.significance === 'major';
                     const isSelected = evt.id === selectedId;
                     const sz = isMajor ? 14 : 10;
@@ -385,7 +456,7 @@ function Swimlane({ events, allEvents, zoom, selectedId, onSelect, laneFilter, s
                         className="absolute flex flex-col items-center cursor-pointer group"
                         style={{
                           left: `${pct}%`, top: '50%',
-                          transform: 'translate(-50%,-50%)',
+                          transform: `translate(-50%, calc(-50% + ${yOffset}px))`,
                           zIndex: isSelected ? 20 : 10,
                         }}
                         onClick={() => onSelect(evt.id)}
@@ -534,13 +605,18 @@ function EventModal({ event, onSave, onClose }: EventModalProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const timestamp = new Date(`${date}T${time || '00:00'}:00`).toISOString();
-    onSave({
-      timestamp, title: title.trim(), lane, category, significance,
-      entity_link: entityLink.trim() || null,
-      description: description.trim() || null,
-      source_type: 'manual',
-    });
+    if (!date) return;
+    try {
+      const timestamp = new Date(`${date}T${time || '00:00'}:00`).toISOString();
+      onSave({
+        timestamp, title: title.trim(), lane, category, significance,
+        entity_link: entityLink.trim() || null,
+        description: description.trim() || null,
+        source_type: 'manual',
+      });
+    } catch (err) {
+      console.error('Invalid date/time:', err);
+    }
   };
 
   return (

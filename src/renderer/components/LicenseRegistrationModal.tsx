@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { registerDemo, type RegistrationData } from "../lib/LicenseContext";
+import { skipRegistrationOffline } from "../lib/licensing";
 
 interface Props {
   onComplete: (data: RegistrationData) => void;
@@ -13,6 +14,33 @@ export function LicenseRegistrationModal({ onComplete }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  const handleContinueOffline = () => {
+    skipRegistrationOffline();
+    // Simulate a minimal registration so the app unblocks
+    onComplete({
+      customerId: 0,
+      apiKey: '',
+      name: 'Offline User',
+      agency: 'Unknown',
+      email: '',
+      address: '',
+      registeredAt: new Date().toISOString(),
+      demoExpiresAt: '',
+    });
+  };
 
   const handleSubmit = async () => {
     setError("");
@@ -111,10 +139,28 @@ export function LicenseRegistrationModal({ onComplete }: Props) {
               {loading ? "Registering..." : "Start 60-Day Free Trial"}
             </button>
 
+            {/* Offline fallback */}
+            {(isOffline || error.toLowerCase().includes('connection') || error.toLowerCase().includes('failed to fetch') || error.toLowerCase().includes('network')) && (
+              <button
+                onClick={handleContinueOffline}
+                className="mt-3 w-full py-2.5 bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 rounded-lg transition text-sm"
+              >
+                Continue Offline (No Internet Detected)
+              </button>
+            )}
+
             <p className="text-center text-text-muted text-xs mt-4">
               After your trial, all existing data and features remain accessible.
               Only creating new cases is restricted until a license is activated.
               <br />
+              {isOffline && (
+                <>
+                  <span className="text-status-warning block mt-1">
+                    ⚠ No internet connection detected. You can continue offline — case management features will work normally. Registration will be prompted when connectivity is restored.
+                  </span>
+                  <br />
+                </>
+              )}
               <span className="text-accent-cyan">
                 Contact{" "}
                 <a href="mailto:Justin@intellect-le.com" className="underline">
