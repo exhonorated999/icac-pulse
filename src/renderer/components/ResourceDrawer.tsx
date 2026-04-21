@@ -78,6 +78,15 @@ const RESOURCES: Resource[] = [
       </svg>
     ),
   },
+  {
+    id: 'icacds', label: 'ICAC Data System', enabledKey: 'icacdsEnabled', isBV: true,
+    accent: 'cyan', accentHex: '#22d3ee',
+    icon: (
+      <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+      </svg>
+    ),
+  },
 ];
 
 /* ── Load BYOA apps from localStorage ──────────────────────── */
@@ -117,6 +126,7 @@ export function ResourceDrawer() {
   const vigilantRef = useRef<HTMLDivElement>(null);
   const trclearRef = useRef<HTMLDivElement>(null);
   const accurintRef = useRef<HTMLDivElement>(null);
+  const icacdsRef = useRef<HTMLDivElement>(null);
   const byoaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rafRef = useRef<number | null>(null);
 
@@ -159,6 +169,7 @@ export function ResourceDrawer() {
     if (resId === 'vigilant') return vigilantRef.current;
     if (resId === 'trclear') return trclearRef.current;
     if (resId === 'accurint') return accurintRef.current;
+    if (resId === 'icacds') return icacdsRef.current;
     if (resId.startsWith('byoa_')) return byoaRefs.current[resId] || null;
     return null;
   }, []);
@@ -178,13 +189,13 @@ export function ResourceDrawer() {
         flock: window.electronAPI.flockSetBounds, tlo: window.electronAPI.tloSetBounds,
         icaccops: window.electronAPI.icaccopsSetBounds, gridcop: window.electronAPI.gridcopSetBounds,
         vigilant: window.electronAPI.vigilantSetBounds, trclear: window.electronAPI.trclearSetBounds,
-        accurint: window.electronAPI.accurintSetBounds,
+        accurint: window.electronAPI.accurintSetBounds, icacds: window.electronAPI.icacdsSetBounds,
       };
       const setVisible: Record<string, (v: boolean) => void> = {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
         vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
-        accurint: window.electronAPI.accurintSetVisible,
+        accurint: window.electronAPI.accurintSetVisible, icacds: window.electronAPI.icacdsSetVisible,
       };
       setBounds[resId]?.(b);
       setVisible[resId]?.(true);
@@ -200,7 +211,7 @@ export function ResourceDrawer() {
         flock: window.electronAPI.flockSetVisible, tlo: window.electronAPI.tloSetVisible,
         icaccops: window.electronAPI.icaccopsSetVisible, gridcop: window.electronAPI.gridcopSetVisible,
         vigilant: window.electronAPI.vigilantSetVisible, trclear: window.electronAPI.trclearSetVisible,
-        accurint: window.electronAPI.accurintSetVisible,
+        accurint: window.electronAPI.accurintSetVisible, icacds: window.electronAPI.icacdsSetVisible,
       };
       setVisible[resId]?.(false);
     }
@@ -493,6 +504,14 @@ export function ResourceDrawer() {
               <div ref={accurintRef} className="w-full h-full flex items-center justify-center"
                 style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
                 <p className="text-gray-600 text-xs">Loading Accurint…</p>
+              </div>
+            </div>
+
+            {/* ICAC Data System BrowserView placeholder */}
+            <div className={`absolute inset-0 ${activeTab === 'icacds' ? '' : 'hidden'}`}>
+              <div ref={icacdsRef} className="w-full h-full flex items-center justify-center"
+                style={{ background: 'rgba(10,15,28,0.5)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8 }}>
+                <p className="text-gray-600 text-xs">Loading ICAC Data System…</p>
               </div>
             </div>
 

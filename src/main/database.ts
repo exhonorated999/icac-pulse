@@ -136,6 +136,16 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   
   createTables();
   runMigrations();
+  
+  // Ensure a default user exists for installed mode
+  // Portable mode creates users via REGISTER_USER, but installed mode skips registration
+  const userCheck = db.exec('SELECT COUNT(*) FROM users');
+  const userCount = userCheck.length > 0 ? (userCheck[0].values[0][0] as number) : 0;
+  if (userCount === 0 && !isPortableMode()) {
+    db.run("INSERT INTO users (username, hardware_id) VALUES ('Officer', 'installed-mode')");
+    safeLog('Created default user for installed mode');
+  }
+  
   saveDatabase();
   
   return db;
@@ -454,6 +464,24 @@ function createTables(): void {
       FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS timeline_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      case_id INTEGER NOT NULL,
+      timestamp TEXT NOT NULL,
+      end_timestamp TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      lane TEXT NOT NULL CHECK(lane IN ('incident', 'investigative', 'forensics')),
+      category TEXT NOT NULL DEFAULT 'custom',
+      significance TEXT NOT NULL DEFAULT 'major' CHECK(significance IN ('major', 'supporting')),
+      entity_link TEXT,
+      source_type TEXT NOT NULL DEFAULT 'manual',
+      source_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_timeline_events_case_id ON timeline_events(case_id);
     CREATE INDEX IF NOT EXISTS idx_cdr_records_case_id ON cdr_records(case_id);
     CREATE INDEX IF NOT EXISTS idx_aperture_emails_case_id ON aperture_emails(case_id);
 
@@ -1141,6 +1169,31 @@ function runMigrations(): void {
       safeLog('Migration 19 (suspect scars/tattoos + license_plate) completed');
     } catch (m19err) {
       safeLog('Migration 19 error:', m19err);
+    }
+
+    // Migration 20: Create timeline_events table for existing databases
+    try {
+      db.run(`CREATE TABLE IF NOT EXISTS timeline_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_id INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,
+        end_timestamp TEXT,
+        title TEXT NOT NULL,
+        description TEXT,
+        lane TEXT NOT NULL CHECK(lane IN ('incident', 'investigative', 'forensics')),
+        category TEXT NOT NULL DEFAULT 'custom',
+        significance TEXT NOT NULL DEFAULT 'major' CHECK(significance IN ('major', 'supporting')),
+        entity_link TEXT,
+        source_type TEXT NOT NULL DEFAULT 'manual',
+        source_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+      )`);
+      db.run('CREATE INDEX IF NOT EXISTS idx_timeline_events_case_id ON timeline_events(case_id)');
+      saveDatabase();
+      safeLog('Migration 20 (timeline_events) completed');
+    } catch (m20err) {
+      safeLog('Migration 20 error:', m20err);
     }
 
     safeLog('Database migrations completed');

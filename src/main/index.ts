@@ -5,10 +5,12 @@ import * as crypto from 'crypto';
 import * as https from 'https';
 import * as http from 'http';
 import { spawn } from 'child_process';
+import AdmZip from 'adm-zip';
 import { initDatabase, getDatabase, getRawDatabase, closeDatabase, saveDatabase, getCasesPath, setCasesPath, getUserDataPath } from './database';
 import { generateHardwareId, verifyHardwareId } from './hardware';
 import * as fileManager from './fileManager';
 import { parseNCMECPDF } from './pdfParser';
+import { parseRmsReport } from './rmsParser';
 import { verifyEmail } from './emailVerifier';
 import { IPC_CHANNELS } from '../shared/types';
 import { initSecurityDb, isUserRegistered, registerUser, loginUser, changePassword, getCurrentUser } from './security';
@@ -53,6 +55,11 @@ let lastTrclearBounds: { x: number; y: number; width: number; height: number } |
 let accurintBrowserView: BrowserView | null = null;
 let accurintViewVisible = false;
 let lastAccurintBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+// ICAC Data System BrowserView
+let icacdsBrowserView: BrowserView | null = null;
+let icacdsViewVisible = false;
+let lastIcacdsBounds: { x: number; y: number; width: number; height: number } | null = null;
 
 // BYOA (Bring Your Own Application) dynamic BrowserViews
 interface ByoaEntry { view: BrowserView; visible: boolean; bounds: { x: number; y: number; width: number; height: number } | null; url: string; }
@@ -380,6 +387,41 @@ function createWindow() {
     }
   });
 
+  // ── ICAC Data System BrowserView ──
+  icacdsBrowserView = new BrowserView({
+    webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:icacds' },
+  });
+  mainWindow.addBrowserView(icacdsBrowserView);
+  icacdsBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  icacdsBrowserView.setAutoResize({ width: false, height: false });
+  icacdsBrowserView.webContents.on('did-finish-load', () => {
+    if (!icacdsViewVisible && mainWindow) mainWindow.webContents.focus();
+    icacdsBrowserView!.webContents.insertCSS(
+      '::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#0d1117}::-webkit-scrollbar-thumb{background:#30363d;border-radius:4px}'
+    ).catch(() => {});
+    const url = icacdsBrowserView!.webContents.getURL();
+    if (url.includes('icacdatasystem.com') && (url.includes('login') || url.includes('Login') || url.includes('landing'))) {
+      mainWindow?.webContents.executeJavaScript(
+        `JSON.stringify({ u: localStorage.getItem('icacdsUsername') || '', p: localStorage.getItem('icacdsPassword') || '' })`
+      ).then((json: string) => {
+        const creds = JSON.parse(json);
+        if (creds.u || creds.p) {
+          icacdsBrowserView!.webContents.executeJavaScript(`
+            (function(){
+              function fill(){
+                const userInput=document.querySelector('input[name="username"],input[name="Username"],input[name="email"],input[type="email"],input[id*="user"],input[id*="User"],input[id*="email"],input[id*="Email"]');
+                const passInput=document.querySelector('input[name="password"],input[name="Password"],input[type="password"]');
+                function setVal(el,val){if(!el||!val)return;const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(el,val);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+                setVal(userInput,${JSON.stringify(creds.u)});setVal(passInput,${JSON.stringify(creds.p)});
+              }
+              setTimeout(fill,500);setTimeout(fill,1500);
+            })();
+          `).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  });
+
   // Reposition BrowserViews on window resize
   mainWindow.on('resize', () => {
     if (flockViewVisible && lastFlockBounds && flockBrowserView) flockBrowserView.setBounds(lastFlockBounds);
@@ -389,6 +431,7 @@ function createWindow() {
     if (vigilantViewVisible && lastVigilantBounds && vigilantBrowserView) vigilantBrowserView.setBounds(lastVigilantBounds);
     if (trclearViewVisible && lastTrclearBounds && trclearBrowserView) trclearBrowserView.setBounds(lastTrclearBounds);
     if (accurintViewVisible && lastAccurintBounds && accurintBrowserView) accurintBrowserView.setBounds(lastAccurintBounds);
+    if (icacdsViewVisible && lastIcacdsBounds && icacdsBrowserView) icacdsBrowserView.setBounds(lastIcacdsBounds);
     // BYOA views
     byoaViews.forEach((entry) => {
       if (entry.visible && entry.bounds) entry.view.setBounds(entry.bounds);
@@ -4908,6 +4951,35 @@ ${data.content}
     accurintBrowserView.webContents.loadURL('https://secure.accurint.com/app/bps/main?');
   });
 
+  // ── ICAC Data System IPC ──
+  ipcMain.on('icacds-set-bounds', (_event: any, bounds: any) => {
+    if (!icacdsBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    const b = { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    lastIcacdsBounds = b;
+    if (icacdsViewVisible) icacdsBrowserView.setBounds(b);
+  });
+
+  ipcMain.on('icacds-set-visible', (_event: any, visible: boolean) => {
+    if (!icacdsBrowserView || !mainWindow || mainWindow.isDestroyed()) return;
+    icacdsViewVisible = visible;
+    if (visible && lastIcacdsBounds) {
+      const currentUrl = icacdsBrowserView.webContents.getURL();
+      if (!currentUrl || currentUrl === '' || currentUrl === 'about:blank') {
+        icacdsBrowserView.webContents.loadURL('https://www.icacdatasystem.com/landing/login');
+      }
+      icacdsBrowserView.setBounds(lastIcacdsBounds);
+    } else if (!visible) {
+      icacdsBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  });
+
+  ipcMain.handle('icacds-reset', async () => {
+    if (!icacdsBrowserView) return;
+    const ses = icacdsBrowserView.webContents.session;
+    await ses.clearStorageData();
+    icacdsBrowserView.webContents.loadURL('https://www.icacdatasystem.com/landing/login');
+  });
+
   /* ── BYOA (Bring Your Own Application) IPC ──────────────── */
   ipcMain.handle('byoa-create-view', (_event: any, { id, url }: { id: string; url: string }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return { success: false };
@@ -7018,6 +7090,424 @@ ${data.content}
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ Case Timeline ═══════════════
+
+  ipcMain.handle(IPC_CHANNELS.GET_TIMELINE_EVENTS, async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const events = db.prepare('SELECT * FROM timeline_events WHERE case_id = ? ORDER BY timestamp ASC').all(caseId);
+      return events;
+    } catch (error: any) {
+      console.error('Failed to get timeline events:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.ADD_TIMELINE_EVENT, async (_event, eventData: any) => {
+    try {
+      const db = getDatabase();
+      const result = db.prepare(
+        `INSERT INTO timeline_events (case_id, timestamp, end_timestamp, title, description, lane, category, significance, entity_link, source_type, source_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        eventData.case_id, eventData.timestamp, eventData.end_timestamp || null,
+        eventData.title, eventData.description || null, eventData.lane,
+        eventData.category || 'custom', eventData.significance || 'major',
+        eventData.entity_link || null, eventData.source_type || 'manual',
+        eventData.source_id || null
+      );
+      saveDatabase();
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error: any) {
+      console.error('Failed to add timeline event:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.UPDATE_TIMELINE_EVENT, async (_event, eventId: number, updates: any) => {
+    try {
+      const db = getDatabase();
+      const fields: string[] = [];
+      const values: any[] = [];
+      for (const [key, val] of Object.entries(updates)) {
+        fields.push(`${key} = ?`);
+        values.push(val);
+      }
+      if (fields.length === 0) return { success: true };
+      values.push(eventId);
+      db.prepare(`UPDATE timeline_events SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to update timeline event:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DELETE_TIMELINE_EVENT, async (_event, eventId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM timeline_events WHERE id = ?').run(eventId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to delete timeline event:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GENERATE_TIMELINE_EVENTS, async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      
+      // Remove existing auto-generated events for this case
+      db.prepare("DELETE FROM timeline_events WHERE case_id = ? AND source_type != 'manual'").run(caseId);
+      
+      const now = new Date().toISOString();
+      const autoEvents: any[] = [];
+      
+      // --- Case creation ---
+      const caseRow = db.prepare('SELECT * FROM cases WHERE id = ?').get(caseId);
+      if (caseRow && caseRow.created_at) {
+        autoEvents.push({
+          case_id: caseId, timestamp: caseRow.created_at, title: 'Case Opened',
+          description: `Case ${caseRow.case_number} created`,
+          lane: 'incident', category: 'custom', significance: 'major',
+          source_type: 'auto:case', source_id: String(caseId)
+        });
+      }
+      
+      // --- CyberTip data ---
+      const cybertip = db.prepare('SELECT * FROM cybertip_data WHERE case_id = ?').get(caseId);
+      if (cybertip) {
+        if (cybertip.report_date) {
+          autoEvents.push({
+            case_id: caseId, timestamp: new Date(cybertip.report_date).toISOString(),
+            title: 'CyberTip Report Filed',
+            description: cybertip.reporting_company ? `Reported by ${cybertip.reporting_company}` : '',
+            lane: 'incident', category: 'rms', significance: 'major',
+            source_type: 'auto:cybertip', source_id: String(caseId)
+          });
+        }
+        if (cybertip.occurrence_date) {
+          autoEvents.push({
+            case_id: caseId, timestamp: new Date(cybertip.occurrence_date).toISOString(),
+            title: 'Occurrence Date',
+            description: `CyberTip #${cybertip.cybertip_number || ''}`,
+            lane: 'incident', category: 'rms', significance: 'supporting',
+            source_type: 'auto:cybertip', source_id: String(caseId)
+          });
+        }
+      }
+      
+      // --- Warrants ---
+      const warrants = db.prepare('SELECT * FROM warrants WHERE case_id = ?').all(caseId);
+      for (const w of warrants) {
+        if (w.date_issued) {
+          autoEvents.push({
+            case_id: caseId, timestamp: new Date(w.date_issued + 'T00:00:00').toISOString(),
+            title: `Warrant Issued — ${w.company_name || 'Unknown'}`,
+            description: w.notes || '', lane: 'investigative', category: 'warrant',
+            significance: 'major', source_type: 'auto:warrant', source_id: String(w.id)
+          });
+        }
+        if (w.date_served) {
+          autoEvents.push({
+            case_id: caseId, timestamp: new Date(w.date_served + 'T00:00:00').toISOString(),
+            title: `Warrant Served — ${w.company_name || 'Unknown'}`,
+            description: w.notes || '', lane: 'investigative', category: 'warrant',
+            significance: 'major', source_type: 'auto:warrant', source_id: String(w.id)
+          });
+        }
+        if (w.date_received) {
+          autoEvents.push({
+            case_id: caseId, timestamp: new Date(w.date_received + 'T00:00:00').toISOString(),
+            title: `Returns Received — ${w.company_name || 'Unknown'}`,
+            description: w.notes || '', lane: 'forensics', category: 'digital',
+            significance: 'supporting', source_type: 'auto:warrant', source_id: String(w.id)
+          });
+        }
+      }
+      
+      // --- Evidence ---
+      const evidence = db.prepare('SELECT * FROM evidence WHERE case_id = ?').all(caseId);
+      for (const ev of evidence) {
+        if (ev.uploaded_at) {
+          autoEvents.push({
+            case_id: caseId, timestamp: ev.uploaded_at,
+            title: `Evidence: ${ev.description || 'Item'}`,
+            description: ev.category ? `Category: ${ev.category}` : '',
+            lane: 'forensics', category: 'digital', significance: 'supporting',
+            source_type: 'auto:evidence', source_id: String(ev.id)
+          });
+        }
+      }
+      
+      // --- Case Notes ---
+      const notes = db.prepare('SELECT * FROM case_notes WHERE case_id = ?').all(caseId);
+      for (const n of notes) {
+        if (n.created_at) {
+          autoEvents.push({
+            case_id: caseId, timestamp: n.created_at,
+            title: 'Case Note',
+            description: n.content ? n.content.slice(0, 120) : '',
+            lane: 'investigative', category: 'note', significance: 'supporting',
+            source_type: 'auto:note', source_id: String(n.id)
+          });
+        }
+      }
+      
+      // Insert all auto events
+      const insertStmt = db.prepare(
+        `INSERT INTO timeline_events (case_id, timestamp, title, description, lane, category, significance, source_type, source_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const evt of autoEvents) {
+        try {
+          insertStmt.run(
+            evt.case_id, evt.timestamp, evt.title, evt.description || '',
+            evt.lane, evt.category, evt.significance, evt.source_type, evt.source_id
+          );
+        } catch (insertErr) {
+          // Skip duplicates / bad data
+        }
+      }
+      
+      saveDatabase();
+      
+      // Return all events for this case
+      const allEvents = db.prepare('SELECT * FROM timeline_events WHERE case_id = ? ORDER BY timestamp ASC').all(caseId);
+      return { success: true, events: allEvents, count: allEvents.length };
+    } catch (error: any) {
+      console.error('Failed to generate timeline events:', error.message);
+      return { success: false, error: error.message, events: [], count: 0 };
+    }
+  });
+
+  // ═══════════════ RMS Report Import ═══════════════
+
+  // Import RMS PDFs: opens multi-select dialog, extracts text, parses, copies to RMS folder
+  ipcMain.handle('rms-import-reports', async (_event, caseId: number) => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Import RMS Reports',
+        filters: [
+          { name: 'PDF Files', extensions: ['pdf'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        properties: ['openFile', 'multiSelections']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true, reports: [] };
+      }
+
+      const rmsDir = path.join(getUserDataPath(), 'rms', `case_${caseId}`);
+      if (!fs.existsSync(rmsDir)) fs.mkdirSync(rmsDir, { recursive: true });
+
+      const pdfParse = require('pdf-parse');
+      const reports: any[] = [];
+
+      for (const filePath of result.filePaths) {
+        try {
+          const dataBuffer = fs.readFileSync(filePath);
+          const pdfData = await pdfParse(dataBuffer);
+          const fileName = path.basename(filePath);
+
+          const report = parseRmsReport(pdfData.text, fileName);
+          report.pageCount = pdfData.numpages;
+
+          // Copy PDF to RMS folder
+          const destPath = path.join(rmsDir, fileName);
+          if (!fs.existsSync(destPath)) {
+            fs.copyFileSync(filePath, destPath);
+          }
+
+          reports.push(report);
+        } catch (err: any) {
+          console.error('Failed to parse RMS PDF:', filePath, err.message);
+        }
+      }
+
+      // Load existing reports, merge (replace duplicates by reportNumber+fileName)
+      const metaPath = path.join(rmsDir, '_reports.json');
+      let existing: any[] = [];
+      if (fs.existsSync(metaPath)) {
+        try { existing = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch { existing = []; }
+      }
+
+      for (const report of reports) {
+        const idx = existing.findIndex((r: any) =>
+          r.reportNumber === report.reportNumber && r.fileName === report.fileName);
+        if (idx !== -1) {
+          existing[idx] = report;
+        } else {
+          existing.push(report);
+        }
+      }
+
+      fs.writeFileSync(metaPath, JSON.stringify(existing), 'utf-8');
+
+      return { success: true, reports: existing, imported: reports.length };
+    } catch (error: any) {
+      console.error('RMS import error:', error);
+      return { success: false, error: error.message, reports: [] };
+    }
+  });
+
+  // Load saved RMS reports for a case
+  ipcMain.handle('rms-load-reports', async (_event, caseId: number) => {
+    try {
+      const metaPath = path.join(getUserDataPath(), 'rms', `case_${caseId}`, '_reports.json');
+      if (!fs.existsSync(metaPath)) return { success: true, reports: [] };
+      const reports = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      return { success: true, reports };
+    } catch (error: any) {
+      return { success: false, error: error.message, reports: [] };
+    }
+  });
+
+  // Delete an RMS report
+  ipcMain.handle('rms-delete-report', async (_event, caseId: number, reportId: string) => {
+    try {
+      const rmsDir = path.join(getUserDataPath(), 'rms', `case_${caseId}`);
+      const metaPath = path.join(rmsDir, '_reports.json');
+      if (!fs.existsSync(metaPath)) return { success: false, error: 'No reports found' };
+
+      let reports: any[] = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      const report = reports.find((r: any) => r.id === reportId);
+      reports = reports.filter((r: any) => r.id !== reportId);
+      fs.writeFileSync(metaPath, JSON.stringify(reports), 'utf-8');
+
+      // Also delete the PDF file
+      if (report?.fileName) {
+        const pdfPath = path.join(rmsDir, report.fileName);
+        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+      }
+
+      return { success: true, reports };
+    } catch (error: any) {
+      return { success: false, error: error.message, reports: [] };
+    }
+  });
+
+  // ═══════════════ Project Oversight Import ═══════════════
+
+  ipcMain.handle('import-oversight-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Import Project Oversight File',
+        filters: [
+          { name: 'Oversight Files', extensions: ['oversight'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        properties: ['openFile']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+      }
+
+      const filePath = result.filePaths[0];
+      const zip = new AdmZip(filePath);
+      const entries = zip.getEntries();
+
+      const parsed: Record<string, any> = {};
+      const photoData: Record<string, string> = {};
+
+      for (const entry of entries) {
+        const name = entry.entryName.replace(/\\/g, '/');
+
+        // Parse JSON data files
+        if (name === 'manifest.json' || name.startsWith('data/')) {
+          try {
+            const key = name === 'manifest.json'
+              ? 'manifest'
+              : name.replace('data/', '').replace('.json', '');
+            parsed[key] = JSON.parse(entry.getData().toString('utf8'));
+          } catch { /* skip malformed json */ }
+        }
+
+        // Extract photos as base64 data URIs
+        if (/\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(name)) {
+          const ext = path.extname(name).slice(1).toLowerCase();
+          const mime = ext === 'jpg' ? 'jpeg' : ext;
+          const b64 = entry.getData().toString('base64');
+          photoData[name] = `data:image/${mime};base64,${b64}`;
+          // Also map with @files/ prefix for file_map references
+          if (name.startsWith('files/')) {
+            photoData['@' + name] = `data:image/${mime};base64,${b64}`;
+          }
+        }
+      }
+
+      // Resolve photo paths on offenders
+      if (parsed.offenders && Array.isArray(parsed.offenders)) {
+        for (const offender of parsed.offenders) {
+          if (offender.profile_photo_path) {
+            const key = offender.profile_photo_path.startsWith('@')
+              ? offender.profile_photo_path.replace('@', '')
+              : offender.profile_photo_path;
+            offender._profilePhotoDataUrl = photoData[key] || photoData['@' + key] || null;
+          }
+          if (offender.residence_photo_path) {
+            const key = offender.residence_photo_path.startsWith('@')
+              ? offender.residence_photo_path.replace('@', '')
+              : offender.residence_photo_path;
+            offender._residencePhotoDataUrl = photoData[key] || photoData['@' + key] || null;
+          }
+        }
+      }
+
+      // Resolve vehicle photos
+      if (parsed.vehicles && Array.isArray(parsed.vehicles)) {
+        for (const vehicle of parsed.vehicles) {
+          if (vehicle.photo_path) {
+            const key = vehicle.photo_path.startsWith('@')
+              ? vehicle.photo_path.replace('@', '')
+              : vehicle.photo_path;
+            vehicle._vehiclePhotoDataUrl = photoData[key] || photoData['@' + key] || null;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        fileName: path.basename(filePath),
+        data: parsed,
+        photoData
+      };
+    } catch (error: any) {
+      console.error('Failed to import oversight file:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('save-oversight-data', async (_event, caseId: number, importData: any) => {
+    try {
+      const dir = path.join(getUserDataPath(), 'oversight');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, `case_${caseId}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(importData), 'utf-8');
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to save oversight data:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('load-oversight-data', async (_event, caseId: number) => {
+    try {
+      const filePath = path.join(getUserDataPath(), 'oversight', `case_${caseId}.json`);
+      if (!fs.existsSync(filePath)) return { success: true, data: null };
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return { success: true, data: JSON.parse(raw) };
+    } catch (error: any) {
+      console.error('Failed to load oversight data:', error);
+      return { success: false, error: error.message, data: null };
     }
   });
 

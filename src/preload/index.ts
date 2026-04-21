@@ -334,6 +334,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   accurintSetVisible: (visible: boolean) => ipcRenderer.send('accurint-set-visible', visible),
   accurintReset: () => ipcRenderer.invoke('accurint-reset'),
 
+  // ICAC Data System
+  icacdsSetBounds: (bounds: any) => ipcRenderer.send('icacds-set-bounds', bounds),
+  icacdsSetVisible: (visible: boolean) => ipcRenderer.send('icacds-set-visible', visible),
+  icacdsReset: () => ipcRenderer.invoke('icacds-reset'),
+
+  // Project Oversight Import
+  importOversightFile: () => ipcRenderer.invoke('import-oversight-file'),
+  saveOversightData: (caseId: number, data: any) => ipcRenderer.invoke('save-oversight-data', caseId, data),
+  loadOversightData: (caseId: number) => ipcRenderer.invoke('load-oversight-data', caseId),
+
+  // RMS Report Import
+  rmsImportReports: (caseId: number) => ipcRenderer.invoke('rms-import-reports', caseId),
+  rmsLoadReports: (caseId: number) => ipcRenderer.invoke('rms-load-reports', caseId),
+  rmsDeleteReport: (caseId: number, reportId: string) => ipcRenderer.invoke('rms-delete-report', caseId, reportId),
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => ipcRenderer.invoke('byoa-create-view', { id, url }),
   byoaSetBounds: (id: string, bounds: any) => ipcRenderer.send('byoa-set-bounds', { id, bounds }),
@@ -462,6 +477,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.SECURITY_DISABLE),
   securityLock: () =>
     ipcRenderer.invoke(IPC_CHANNELS.SECURITY_LOCK),
+
+  // Timeline
+  getTimelineEvents: (caseId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_TIMELINE_EVENTS, caseId),
+  addTimelineEvent: (event: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.ADD_TIMELINE_EVENT, event),
+  updateTimelineEvent: (eventId: number, updates: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_TIMELINE_EVENT, eventId, updates),
+  deleteTimelineEvent: (eventId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DELETE_TIMELINE_EVENT, eventId),
+  generateTimelineEvents: (caseId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GENERATE_TIMELINE_EVENTS, caseId),
 
   // In-App Updater
   getAppVersion: () =>

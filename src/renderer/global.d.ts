@@ -113,6 +113,69 @@ interface ElectronAPI {
   accurintSetVisible: (visible: boolean) => void;
   accurintReset: () => Promise<void>;
 
+  // ICAC Data System
+  icacdsSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  icacdsSetVisible: (visible: boolean) => void;
+  icacdsReset: () => Promise<void>;
+
+  // Project Oversight Import
+  // Project Oversight Import
+  importOversightFile: () => Promise<{
+    success: boolean;
+    canceled?: boolean;
+    error?: string;
+    fileName?: string;
+    data?: {
+      manifest: { version: string; export_date: string; offender_count: number; app_version: string; export_type: string };
+      offenders: Array<{
+        id: number; full_name: string; first_name: string; middle_name: string | null; last_name: string;
+        jurisdiction: string | null; dob: string; sex: string; race: string;
+        height_ft: number; height_in: number; weight: number;
+        hair_color: string; eye_color: string; scars_marks_tattoos: string;
+        address: string; city: string; state: string; zip: string;
+        phone: string; email: string; employer: string; employer_address: string;
+        profile_photo_path: string | null; residence_photo_path: string | null;
+        emergency_contact_name: string | null; emergency_contact_phone: string | null;
+        emergency_contact_address: string | null; emergency_contact_relationship: string | null;
+        is_homeless: boolean; is_visiting: boolean; advised_departure_date: string | null;
+        status: string; inactive_reason: string | null;
+        tier_status: string; on_supervision: boolean;
+        static_99_score: number | null; stable_2007_score: number | null;
+        latitude: number | null; longitude: number | null;
+        created_at: string; updated_at: string;
+        _profilePhotoDataUrl?: string | null; _residencePhotoDataUrl?: string | null;
+      }>;
+      convictions: Array<{
+        id: number; offender_id: number; conviction_date: string; offenses: string; tier_status: string; created_at: string;
+      }>;
+      compliance_checks: Array<{
+        id: number; offender_id: number; check_date: string; officer_name: string | null;
+        in_compliance: boolean; notes: string; document_path: string | null; sweep_id: string | null; created_at: string;
+      }>;
+      registration_events: Array<{
+        id: number; offender_id: number; registration_date: string; registering_officer: string;
+        in_compliance: boolean; notes: string; document_path: string | null;
+        next_registration_date: string | null; created_at: string;
+      }>;
+      officer_notes: Array<{
+        id: number; offender_id: number; note_text: string; officer_name: string;
+        document_path: string | null; created_at: string;
+      }>;
+      supervision: Array<any>;
+      vehicles: Array<any>;
+      drug_tests: Array<any>;
+      polygraph_tests: Array<any>;
+    };
+    photoData?: Record<string, string>;
+  }>;
+  saveOversightData: (caseId: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  loadOversightData: (caseId: number) => Promise<{ success: boolean; data: any | null; error?: string }>;
+
+  // RMS Report Import
+  rmsImportReports: (caseId: number) => Promise<{ success: boolean; canceled?: boolean; error?: string; reports: any[]; imported?: number }>;
+  rmsLoadReports: (caseId: number) => Promise<{ success: boolean; reports: any[]; error?: string }>;
+  rmsDeleteReport: (caseId: number, reportId: string) => Promise<{ success: boolean; reports: any[]; error?: string }>;
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => Promise<{ success: boolean }>;
   byoaSetBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
@@ -235,6 +298,13 @@ interface ElectronAPI {
   securityNewRecovery: () => Promise<{ success: boolean; recoveryKey?: string; error?: string }>;
   securityDisable: () => Promise<{ success: boolean; error?: string }>;
   securityLock: () => Promise<{ success: boolean; error?: string }>;
+
+  // Timeline
+  getTimelineEvents: (caseId: number) => Promise<any[]>;
+  addTimelineEvent: (event: any) => Promise<{ success: boolean; id?: number; error?: string }>;
+  updateTimelineEvent: (eventId: number, updates: any) => Promise<{ success: boolean; error?: string }>;
+  deleteTimelineEvent: (eventId: number) => Promise<{ success: boolean; error?: string }>;
+  generateTimelineEvents: (caseId: number) => Promise<{ success: boolean; events: any[]; count: number; error?: string }>;
 
   // In-App Updater
   getAppVersion: () => Promise<string>;

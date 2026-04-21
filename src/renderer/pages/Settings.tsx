@@ -73,6 +73,13 @@ export function Settings() {
   const [accurintHasCredentials, setAccurintHasCredentials] = useState(false);
   const [showAccurintPassword, setShowAccurintPassword] = useState(false);
 
+  // ICAC Data System state
+  const [icacdsEnabled, setIcacdsEnabled] = useState(() => localStorage.getItem('icacdsEnabled') === 'true');
+  const [icacdsUsername, setIcacdsUsername] = useState('');
+  const [icacdsPassword, setIcacdsPassword] = useState('');
+  const [icacdsHasCredentials, setIcacdsHasCredentials] = useState(false);
+  const [showIcacdsPassword, setShowIcacdsPassword] = useState(false);
+
   // BYOA state
   interface ByoaApp { id: string; label: string; url: string; }
   const [byoaApps, setByoaApps] = useState<ByoaApp[]>(() => {
@@ -256,6 +263,7 @@ export function Settings() {
       setVigilantHasCredentials(!!(localStorage.getItem('vigilantUsername')));
       setTrclearHasCredentials(!!(localStorage.getItem('trclearUsername')));
       setAccurintHasCredentials(!!(localStorage.getItem('accurintUsername')));
+      setIcacdsHasCredentials(!!(localStorage.getItem('icacdsUsername')));
 
       // Check if in portable mode
       const portable = await window.electronAPI.isPortableMode();
@@ -2018,6 +2026,76 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                           className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition">Clear</button>
                       </div>
                       <p className="text-xs text-text-muted leading-relaxed">Credentials are stored locally and used to auto-fill the Accurint login form. They are never sent anywhere else.</p>
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {/* ── ICAC Data System ── */}
+              <div className="bg-background rounded-lg p-4 border border-accent-cyan/20">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-text-primary font-semibold mb-1">ICAC Data System — Case & Task Management</h3>
+                      <p className="text-text-muted text-sm">
+                        Access the ICAC Data System directly from the resources drawer. Manage ICAC task force cases, track metrics, submit reports, and coordinate with other ICAC agencies. Requires ICAC Data System credentials.
+                      </p>
+                      <a href="#" onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl('https://www.icacdatasystem.com'); }}
+                        className="inline-block mt-1 text-xs text-cyan-400 hover:text-cyan-300 underline">
+                        Visit icacdatasystem.com →
+                      </a>
+                      {icacdsEnabled && (
+                        <span className="inline-block mt-1 ml-3 text-xs text-cyan-400">
+                          {icacdsHasCredentials ? '✓ Credentials saved' : 'No credentials saved — you\'ll log in manually'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button onClick={() => { const next = !icacdsEnabled; localStorage.setItem('icacdsEnabled', String(next)); setIcacdsEnabled(next); window.dispatchEvent(new Event('resourceToggle')); }}
+                    className={`relative w-14 h-7 rounded-full transition-colors flex-shrink-0 ${icacdsEnabled ? 'bg-cyan-500' : 'bg-gray-600'}`}>
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${icacdsEnabled ? 'translate-x-8' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                {icacdsEnabled && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs text-cyan-400 hover:text-cyan-300 select-none flex items-center gap-1.5 font-medium">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Login Credentials (auto-fill)
+                    </summary>
+                    <div className="mt-3 space-y-3 p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/10">
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Username / Email</label>
+                        <input type="text" placeholder="ICAC Data System username" value={icacdsUsername} onChange={e => setIcacdsUsername(e.target.value)}
+                          className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-cyan-500 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-text-muted mb-1">Password</label>
+                        <div className="relative">
+                          <input type={showIcacdsPassword ? 'text' : 'password'} placeholder="••••••••" value={icacdsPassword} onChange={e => setIcacdsPassword(e.target.value)}
+                            className="w-full bg-background border border-accent-cyan/20 rounded-lg px-3 py-2 text-text-primary text-sm focus:border-cyan-500 focus:outline-none pr-10" />
+                          <button type="button" onClick={() => setShowIcacdsPassword(v => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-cyan-400 transition">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { localStorage.setItem('icacdsUsername', icacdsUsername); localStorage.setItem('icacdsPassword', icacdsPassword); setIcacdsHasCredentials(true); setIcacdsUsername(''); setIcacdsPassword(''); }}
+                          className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500 rounded-lg text-cyan-400 text-xs font-medium transition">Save Credentials</button>
+                        <button onClick={() => { localStorage.removeItem('icacdsUsername'); localStorage.removeItem('icacdsPassword'); setIcacdsHasCredentials(false); setIcacdsUsername(''); setIcacdsPassword(''); }}
+                          className="px-3 py-1.5 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-600 rounded-lg text-text-muted text-xs font-medium transition">Clear</button>
+                      </div>
+                      <p className="text-xs text-text-muted leading-relaxed">Credentials are stored locally and used to auto-fill the ICAC Data System login form. They are never sent anywhere else.</p>
                     </div>
                   </details>
                 )}

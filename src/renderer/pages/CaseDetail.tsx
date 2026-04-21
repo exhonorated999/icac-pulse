@@ -9,6 +9,8 @@ import { EvidenceTab } from '../components/EvidenceTab';
 import { EmailVerifier } from '../components/EmailVerifier';
 import { CDRTab } from '../components/CDRTab';
 import { ApertureTab } from '../components/ApertureTab';
+import { OversightTab } from '../components/OversightTab';
+import { RMSTab } from '../components/RMSTab';
 import { 
   OverviewIcon, 
   NotesIcon, 
@@ -19,10 +21,13 @@ import {
   ReportIcon, 
   ProsecutionIcon,
   CDRIcon,
-  ApertureIcon
+  ApertureIcon,
+  OversightIcon,
+  RMSIcon
 } from '../components/CaseTabIcons';
 import { useToast } from '../components/Toast';
 import { ExportCaseDialog } from '../components/ExportCaseDialog';
+import { CaseTimeline } from '../components/CaseTimeline';
 
 interface CaseData {
   id: number;
@@ -95,12 +100,16 @@ const DEFAULT_TAB_ORDER = [
 const ADDON_MODULES = [
   { id: 'cdr', label: 'CDR Analysis', IconComponent: CDRIcon, description: 'Call Detail Record analysis & analytics' },
   { id: 'aperture', label: 'Aperture', IconComponent: ApertureIcon, description: 'Email forensics (.eml / .mbox)' },
+  { id: 'oversight', label: 'Oversight', IconComponent: OversightIcon, description: 'Project Oversight case import' },
+  { id: 'rms', label: 'RMS', IconComponent: RMSIcon, description: 'Report Management System imports' },
 ];
 
 // Map addon module IDs to their tab definitions
 const ADDON_TAB_MAP: Record<string, { id: string; label: string; IconComponent: any }> = {
   cdr: { id: 'cdr', label: 'CDR Analysis', IconComponent: CDRIcon },
   aperture: { id: 'aperture', label: 'Aperture', IconComponent: ApertureIcon },
+  oversight: { id: 'oversight', label: 'Oversight', IconComponent: OversightIcon },
+  rms: { id: 'rms', label: 'RMS', IconComponent: RMSIcon },
 };
 
 export function CaseDetail() {
@@ -1664,6 +1673,9 @@ export function CaseDetail() {
               </div>
             </div>
 
+            {/* Case Timeline */}
+            <CaseTimeline caseId={caseData.id} />
+
             {/* CyberTip Specific Data */}
             {caseData.case_type === 'cybertip' && (
               <>
@@ -2725,6 +2737,14 @@ export function CaseDetail() {
 
         {activeTab === 'aperture' && caseData && (
           <ApertureTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'oversight' && caseData && (
+          <OversightTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'rms' && caseData && (
+          <RMSTab caseId={caseData.id} caseNumber={caseData.case_number} />
         )}
       </div>
     </div>

@@ -431,6 +431,13 @@ export const IPC_CHANNELS = {
   SECURITY_DISABLE: 'security-disable',
   SECURITY_LOCK: 'security-lock',
 
+  // Timeline
+  GET_TIMELINE_EVENTS: 'get-timeline-events',
+  ADD_TIMELINE_EVENT: 'add-timeline-event',
+  UPDATE_TIMELINE_EVENT: 'update-timeline-event',
+  DELETE_TIMELINE_EVENT: 'delete-timeline-event',
+  GENERATE_TIMELINE_EVENTS: 'generate-timeline-events',
+
   // Window management
   RESTORE_WINDOW_FOCUS: 'restore-window-focus',
 } as const;
