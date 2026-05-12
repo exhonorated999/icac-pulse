@@ -43,31 +43,72 @@ export function getUsbFingerprint(): UsbFingerprint {
 
 /**
  * Get volume serial number from Windows
+ *
+ * Tries multiple methods because:
+ *   - `Get-Volume -DriveLetter X | Select SerialNumber` returns NOTHING on
+ *     many Windows builds (MSFT_Volume's SerialNumber property is empty for
+ *     some USB drives) and throws "Property 'SerialNumber' cannot be found"
+ *     on older PowerShell.
+ *   - `wmic` is deprecated/removed on Windows 11 24H2+.
+ *   - `cmd /c vol X:` is the most universally reliable fallback.
  */
 function getVolumeSerial(driveLetter: string): string {
-  try {
-    // Use PowerShell to get volume serial
-    const command = `powershell -Command "Get-Volume -DriveLetter ${driveLetter.replace(':', '')} | Select-Object -ExpandProperty SerialNumber"`;
-    const output = execSync(command, { encoding: 'utf-8' }).trim();
-    
-    if (output && output !== '') {
-      return output;
+  const letterNoColon = driveLetter.replace(':', '');
+  const letterWithColon = letterNoColon + ':';
+  const attempts: Array<{ name: string; run: () => string }> = [
+    {
+      name: 'Win32_LogicalDisk.VolumeSerialNumber (WMI)',
+      run: () => {
+        const cmd = `powershell -NoProfile -Command "(Get-WmiObject Win32_LogicalDisk -Filter \\"DeviceID='${letterWithColon}'\\").VolumeSerialNumber"`;
+        return execSync(cmd, { encoding: 'utf-8', timeout: 8000 }).trim();
+      },
+    },
+    {
+      name: 'Win32_LogicalDisk via CIM',
+      run: () => {
+        const cmd = `powershell -NoProfile -Command "(Get-CimInstance Win32_LogicalDisk -Filter \\"DeviceID='${letterWithColon}'\\").VolumeSerialNumber"`;
+        return execSync(cmd, { encoding: 'utf-8', timeout: 8000 }).trim();
+      },
+    },
+    {
+      name: 'cmd vol',
+      run: () => {
+        // `vol D:` returns: "Volume in drive D is XYZ\r\n Volume Serial Number is XXXX-XXXX"
+        const out = execSync(`cmd /c vol ${letterWithColon}`, { encoding: 'utf-8', timeout: 5000 });
+        const m = out.match(/Serial Number is\s+([A-F0-9-]+)/i);
+        if (m) return m[1].replace(/-/g, '');
+        return '';
+      },
+    },
+    {
+      name: 'wmic logicaldisk (legacy)',
+      run: () => {
+        const out = execSync(
+          `wmic logicaldisk where "DeviceID='${letterWithColon}'" get VolumeSerialNumber`,
+          { encoding: 'utf-8', timeout: 5000 }
+        );
+        const lines = out.split('\n').map(l => l.trim()).filter(l => l !== '' && !/^VolumeSerialNumber$/i.test(l));
+        return lines[0] || '';
+      },
+    },
+  ];
+
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      const value = attempt.run();
+      if (value && value !== '') {
+        console.log(`Volume serial via ${attempt.name}: ${value}`);
+        return value;
+      }
+      errors.push(`${attempt.name}: empty`);
+    } catch (err: any) {
+      errors.push(`${attempt.name}: ${err?.message || err}`);
     }
-    
-    // Fallback: use wmic
-    const wmicCommand = `wmic volume where "DriveLetter='${driveLetter}'" get SerialNumber`;
-    const wmicOutput = execSync(wmicCommand, { encoding: 'utf-8' });
-    const lines = wmicOutput.split('\n').map(l => l.trim()).filter(l => l !== '');
-    
-    if (lines.length > 1) {
-      return lines[1]; // Second line after "SerialNumber" header
-    }
-    
-    throw new Error('Could not retrieve volume serial');
-  } catch (error) {
-    console.error('Failed to get volume serial:', error);
-    throw new Error(`Volume serial retrieval failed: ${error}`);
   }
+
+  console.error('All volume serial methods failed:', errors);
+  throw new Error(`Volume serial retrieval failed (tried ${attempts.length} methods): ${errors.join(' | ')}`);
 }
 
 /**
@@ -151,14 +192,14 @@ export function isPortableMode(): boolean {
     console.log('Executable path:', exePath);
     console.log('Drive letter:', driveLetter);
     
-    // Check if drive is removable using Windows API
-    const command = `powershell -Command "Get-Volume -DriveLetter ${driveLetter.replace(':', '')} | Select-Object -ExpandProperty DriveType"`;
-    const output = execSync(command, { encoding: 'utf-8' }).trim();
+    // Check if drive is removable using WMI (Win32_LogicalDisk.DriveType: 2 = removable)
+    const command = `powershell -NoProfile -Command "(Get-WmiObject Win32_LogicalDisk -Filter \\"DeviceID='${driveLetter}'\\").DriveType"`;
+    const output = execSync(command, { encoding: 'utf-8', timeout: 8000 }).trim();
     
     console.log('Drive type:', output);
     
     // DriveType: Removable = 2, Fixed = 3
-    const isRemovable = output === 'Removable' || output === '2';
+    const isRemovable = output === '2' || output === 'Removable';
     console.log('RESULT: Portable mode =', isRemovable);
     
     return isRemovable;

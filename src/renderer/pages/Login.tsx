@@ -123,15 +123,15 @@ export function Login({ onLoginSuccess }: LoginProps) {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background relative overflow-hidden">
+    <div className="flex items-start sm:items-center justify-center min-h-screen bg-background relative overflow-y-auto py-6 sm:py-10">
       {/* Starfield background effect */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-panel to-background">
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-panel to-background pointer-events-none">
         <div className="stars-small"></div>
         <div className="stars-medium"></div>
       </div>
 
-      <div className="bg-panel p-8 rounded-lg shadow-2xl border border-accent-cyan/30 max-w-md w-full relative z-10 mx-4">
-        <div className="text-center mb-8">
+      <div className="bg-panel p-6 sm:p-8 rounded-lg shadow-2xl border border-accent-cyan/30 max-w-md w-full relative z-10 mx-4 my-auto">
+        <div className="text-center mb-6 sm:mb-8">
           <div className="mb-6">
             <Logo size="medium" showFullText={true} />
           </div>
