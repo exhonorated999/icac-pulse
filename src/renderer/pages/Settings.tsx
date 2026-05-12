@@ -2938,6 +2938,7 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                         setSecSetupMode(false);
                         setSecRecoveryKey(res.recoveryKey || '');
                         setSecPw(''); setSecPwConfirm('');
+                        window.dispatchEvent(new Event('fieldSecurityChanged'));
                       } else {
                         setSecError(res.error || 'Setup failed');
                       }
@@ -3024,6 +3025,7 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                         const res = await window.electronAPI.securityDisable();
                         if (res.success) {
                           setSecEnabled(false);
+                          window.dispatchEvent(new Event('fieldSecurityChanged'));
                         } else {
                           setSecError(res.error || 'Failed to disable');
                         }

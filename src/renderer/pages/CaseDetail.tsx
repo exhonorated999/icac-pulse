@@ -1901,6 +1901,9 @@ export function CaseDetail() {
                   </p>
                 </div>
               </div>
+
+              {/* Custom Metrics (user-defined; see Settings → Custom Metrics) */}
+              <CaseCustomMetrics caseId={caseData.id} />
             </div>
 
             {/* Case Timeline */}
@@ -2862,9 +2865,6 @@ export function CaseDetail() {
                 )}
               </div>
             )}
-
-            {/* Custom Metrics (user-defined; see Settings → Custom Metrics) */}
-            <CaseCustomMetrics caseId={caseData.id} />
           </div>
         )}
 

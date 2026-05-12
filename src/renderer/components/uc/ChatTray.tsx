@@ -351,16 +351,13 @@ export function ChatTray() {
                  style={{ background: 'rgba(124,58,237,0.08)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <span className="text-sm font-semibold" style={{ color: '#c4b5fd' }}>UC Chat Operations</span>
 
-              {/* Persona switcher */}
-              <select
-                className="px-2 py-1 rounded text-xs text-white outline-none"
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                value={activePersonaId ?? ''}
-                onChange={e => setActivePersonaId(parseInt(e.target.value, 10) || null)}
-              >
-                {personas.length === 0 && <option value="">(no personas)</option>}
-                {personas.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-              </select>
+              {/* Persona switcher (custom dropdown — native <select> would
+                  inherit OS chrome with a white background) */}
+              <PersonaSwitcher
+                personas={personas}
+                activePersonaId={activePersonaId}
+                onChange={setActivePersonaId}
+              />
               <button onClick={() => setShowPersonaEditor({})}
                       className="px-2 py-1 rounded text-xs"
                       style={{ background: 'rgba(255,255,255,0.06)', color: '#d1d5db' }}>+ Persona</button>
@@ -608,3 +605,106 @@ function CheatRow({ label, value, multiline }: { label: string; value: any; mult
     </div>
   );
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * PersonaSwitcher — themed dropdown replacement for native <select>.
+ *
+ * The native select renders OS chrome (Windows light dropdown) that ignores
+ * most CSS — making the options unreadable against the dark UI. This is a
+ * fully custom button + popup list using the app's existing palette.
+ * Closes on outside click or Escape.
+ * ───────────────────────────────────────────────────────────────────── */
+function PersonaSwitcher({
+  personas,
+  activePersonaId,
+  onChange,
+}: {
+  personas: UcPersona[];
+  activePersonaId: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const active = personas.find(p => p.id === activePersonaId) || null;
+  const label = active?.display_name || (personas.length === 0 ? '(no personas)' : 'Select persona');
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="px-2 py-1 rounded text-xs text-white outline-none flex items-center gap-1.5 min-w-[110px]"
+        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+      >
+        <span className="flex-1 text-left truncate">{label}</span>
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
+             fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-md shadow-xl overflow-hidden"
+          style={{
+            background: '#1B1C20',
+            border: '1px solid rgba(124,58,237,0.4)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          }}
+        >
+          {personas.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-500 italic">No personas yet</div>
+          ) : (
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {personas.map(p => {
+                const isActive = p.id === activePersonaId;
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => { onChange(p.id); setOpen(false); }}
+                      className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors"
+                      style={{
+                        background: isActive ? 'rgba(124,58,237,0.20)' : 'transparent',
+                        color: isActive ? '#c4b5fd' : '#e5e7eb',
+                      }}
+                      onMouseEnter={e => {
+                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)';
+                      }}
+                      onMouseLeave={e => {
+                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                      }}
+                    >
+                      {isActive && (
+                        <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      <span className={isActive ? '' : 'ml-5'}>{p.display_name}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

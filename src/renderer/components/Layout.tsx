@@ -8,6 +8,7 @@ import { ResourceDrawer } from './ResourceDrawer';
 import { ChatTray } from './uc/ChatTray';
 import { UcAlertHost } from './uc/UcAlertHost';
 import DownloadCaptureModal from './DownloadCaptureModal';
+import FieldSecurityLockOverlay from './FieldSecurityLockOverlay';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -393,6 +394,42 @@ export function Layout({ children, user }: LayoutProps) {
   const [ucChatEnabled, setUcChatEnabled] = useState(() => localStorage.getItem('ucChatEnabled') !== 'false');
   const [bugModalOpen, setBugModalOpen] = useState(false);
 
+  // Field Security: track whether encryption is enabled and whether the store
+  // is currently locked. The Lock button only renders when enabled; the
+  // overlay only renders when locked.
+  const [secEnabled, setSecEnabled] = useState(false);
+  const [secLocked, setSecLocked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshSec = async () => {
+      try {
+        const state = await window.electronAPI.securityCheck();
+        if (cancelled) return;
+        setSecEnabled(!!state?.enabled);
+        setSecLocked(!!state?.enabled && !!state?.locked);
+      } catch {
+        if (!cancelled) { setSecEnabled(false); setSecLocked(false); }
+      }
+    };
+    refreshSec();
+    window.addEventListener('fieldSecurityChanged', refreshSec);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('fieldSecurityChanged', refreshSec);
+    };
+  }, []);
+
+  const handleLockApp = async () => {
+    try {
+      await window.electronAPI.securityLock();
+      setSecLocked(true);
+      window.dispatchEvent(new Event('fieldSecurityChanged'));
+    } catch (err) {
+      console.error('Failed to lock application:', err);
+    }
+  };
+
   // Listen for settings toggle and boss-key (Ctrl+Alt+M)
   useEffect(() => {
     const onSettingsToggle = () => setMediaEnabled(localStorage.getItem('mediaPlayerEnabled') === 'true');
@@ -537,6 +574,23 @@ export function Layout({ children, user }: LayoutProps) {
             </svg>
             <span className="font-medium text-xs">Report a Bug</span>
           </button>
+
+          {/* Lock App — only when Field Security is enabled in Settings */}
+          {secEnabled && (
+            <button
+              onClick={handleLockApp}
+              title="Lock the application (requires password to unlock)"
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg transition-all
+                         bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan
+                         hover:bg-accent-cyan/20 hover:border-accent-cyan/50"
+            >
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span className="font-medium text-xs">Lock App</span>
+            </button>
+          )}
           
           {/* Theme Toggle */}
           <ThemeToggle />
@@ -562,6 +616,13 @@ export function Layout({ children, user }: LayoutProps) {
 
       {/* Bug Report Modal */}
       {bugModalOpen && <BugReportModal onClose={() => setBugModalOpen(false)} />}
+
+      {/* Field Security lock overlay — blocks the app until unlocked */}
+      {secLocked && (
+        <FieldSecurityLockOverlay
+          onUnlock={() => setSecLocked(false)}
+        />
+      )}
     </div>
   );
 }

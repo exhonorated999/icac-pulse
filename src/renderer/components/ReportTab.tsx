@@ -79,6 +79,81 @@ export function ReportTab({ caseId, caseNumber }: ReportTabProps) {
     }
   };
 
+  /**
+   * Copy the entire report to the clipboard.
+   *
+   * Writes BOTH text/html and text/plain so that:
+   *  - Rich targets (Word, Outlook, web RMS textareas with formatting) keep
+   *    bold/italic/underline/lists.
+   *  - Plain-text targets (Notepad, vanilla <textarea> RMS fields) still
+   *    get clean text without HTML tags.
+   *
+   * Uses the modern ClipboardItem API; falls back to execCommand('copy') on
+   * older Electron builds or if clipboard permissions misbehave.
+   */
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const handleCopyAll = async () => {
+    const html = editorRef.current?.innerHTML || '';
+    const plain = editorRef.current?.innerText || '';
+
+    if (!plain.trim()) {
+      alert('Report is empty — nothing to copy.');
+      return;
+    }
+
+    const showCopied = () => {
+      setCopyState('copied');
+      setTimeout(() => setCopyState('idle'), 1800);
+    };
+    const showError = (msg: string) => {
+      console.error('Copy All failed:', msg);
+      setCopyState('error');
+      setTimeout(() => setCopyState('idle'), 2200);
+    };
+
+    // Preferred path: write a ClipboardItem with both formats.
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        const item = new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+        });
+        await navigator.clipboard.write([item]);
+        showCopied();
+        return;
+      }
+    } catch (err) {
+      // fall through to plain-text path
+      console.warn('Rich clipboard write failed, falling back to plain text:', err);
+    }
+
+    // Fallback 1: navigator.clipboard.writeText (plain only)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(plain);
+        showCopied();
+        return;
+      }
+    } catch (err) {
+      console.warn('writeText failed, falling back to execCommand:', err);
+    }
+
+    // Fallback 2: select-and-copy via document.execCommand
+    try {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      if (!editorRef.current) throw new Error('Editor not mounted');
+      range.selectNodeContents(editorRef.current);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const ok = document.execCommand('copy');
+      selection?.removeAllRanges();
+      if (ok) showCopied(); else showError('execCommand returned false');
+    } catch (err: any) {
+      showError(err?.message || String(err));
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
@@ -185,6 +260,30 @@ export function ReportTab({ caseId, caseNumber }: ReportTabProps) {
             Pop Out
           </button>
           <button
+            onClick={handleCopyAll}
+            disabled={saving}
+            title="Copy the full report to the clipboard (preserves formatting for Word/Outlook; plain text for textareas)"
+            className={`px-6 py-2 rounded-lg border transition-colors flex items-center gap-2 font-medium
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       ${copyState === 'copied'
+                          ? 'bg-status-success/10 border-status-success/40 text-status-success'
+                          : copyState === 'error'
+                            ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                            : 'bg-background border-accent-cyan/30 text-accent-cyan hover:border-accent-cyan hover:bg-accent-cyan/10'}`}
+          >
+            {copyState === 'copied' ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
+            {copyState === 'copied' ? 'Copied!' : copyState === 'error' ? 'Copy failed' : 'Copy All'}
+          </button>
+          <button
             onClick={handleSave}
             disabled={saving}
             className="px-6 py-2 bg-accent-cyan text-background rounded-lg 
@@ -264,6 +363,7 @@ export function ReportTab({ caseId, caseNumber }: ReportTabProps) {
       <div className="text-sm text-text-muted italic">
         <p>💡 Tip: Use the formatting buttons or keyboard shortcuts (Ctrl+B, Ctrl+I, Ctrl+U) to format text.</p>
         <p className="mt-1">📝 Click "Pop Out" to open the report in a separate window while you navigate other tabs.</p>
+        <p className="mt-1">📋 Click "Copy All" to copy the report (with formatting) to your clipboard — paste it straight into your agency's RMS.</p>
         <p className="mt-1">📄 Click "Save Report" to save your work. Click "Download PDF" to export for court.</p>
       </div>
     </div>
