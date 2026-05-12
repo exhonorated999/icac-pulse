@@ -5,6 +5,9 @@ import { AllCasesIcon, SettingsIcon } from './DashboardIcons';
 import { ThemeToggle } from './ThemeToggle';
 import { MediaPlayer } from './MediaPlayer';
 import { ResourceDrawer } from './ResourceDrawer';
+import { ChatTray } from './uc/ChatTray';
+import { UcAlertHost } from './uc/UcAlertHost';
+import DownloadCaptureModal from './DownloadCaptureModal';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -383,6 +386,11 @@ export function Layout({ children, user }: LayoutProps) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaEnabled, setMediaEnabled] = useState(() => localStorage.getItem('mediaPlayerEnabled') === 'true');
+  // UC Chat Operations is opt-out — agencies that don't run chat ops can hide
+  // the floating FAB + tray entirely from Settings. Default ON for existing
+  // installs (any stored value other than the literal 'false' string counts
+  // as enabled, so unset → enabled).
+  const [ucChatEnabled, setUcChatEnabled] = useState(() => localStorage.getItem('ucChatEnabled') !== 'false');
   const [bugModalOpen, setBugModalOpen] = useState(false);
 
   // Listen for settings toggle and boss-key (Ctrl+Alt+M)
@@ -403,6 +411,13 @@ export function Layout({ children, user }: LayoutProps) {
       window.removeEventListener('mediaPlayerToggle', onSettingsToggle);
       window.electronAPI.removeToggleMediaPlayerListener(onBossKey);
     };
+  }, []);
+
+  // Listen for the UC Chat enable/disable toggle from Settings.
+  useEffect(() => {
+    const onUcChatToggle = () => setUcChatEnabled(localStorage.getItem('ucChatEnabled') !== 'false');
+    window.addEventListener('ucChatToggle', onUcChatToggle);
+    return () => window.removeEventListener('ucChatToggle', onUcChatToggle);
   }, []);
 
   const menuItems = [
@@ -535,6 +550,15 @@ export function Layout({ children, user }: LayoutProps) {
 
       {/* Investigative Resources Drawer */}
       <ResourceDrawer />
+
+      {/* UC Chat Operations Tray (global, peer to ResourceDrawer) — opt-out via Settings */}
+      {ucChatEnabled && <ChatTray />}
+
+      {/* UC Chat alert toasts (global) */}
+      {ucChatEnabled && <UcAlertHost />}
+
+      {/* Resource download capture (Flock/TLO/ICACCops/ICAC Data System/etc.) */}
+      <DownloadCaptureModal />
 
       {/* Bug Report Modal */}
       {bugModalOpen && <BugReportModal onClose={() => setBugModalOpen(false)} />}

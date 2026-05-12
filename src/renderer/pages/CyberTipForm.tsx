@@ -189,6 +189,10 @@ export function CyberTipForm() {
         throw new Error('Case creation failed - no ID returned');
       }
 
+      // Stamp modular-case defaults (Overview is implicit; user can manage later via Modules button)
+      localStorage.setItem(`caseModules_${newCase.id}`, JSON.stringify(['suspect', 'warrants', 'evidence', 'report']));
+      localStorage.setItem(`caseModulesV2_${newCase.id}`, '1');
+
       // 2. Save CyberTip metadata
       await window.electronAPI.saveCyberTipData({
         caseId: newCase.id,

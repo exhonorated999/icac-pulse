@@ -14,11 +14,11 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/preload/index.ts')
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          ucNotifPreload: resolve(__dirname, 'src/preload/ucNotifPreload.ts')
         }
       }
     }

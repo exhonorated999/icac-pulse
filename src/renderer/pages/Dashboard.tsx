@@ -387,10 +387,10 @@ export function Dashboard() {
           {/* Import Case Button */}
           <button
             onClick={() => canCreate ? setShowImportDialog(true) : navigate('/settings')}
-            className={`px-6 py-2.5 font-semibold rounded-lg transition-colors flex items-center gap-2 ${
+            className={`px-5 py-2.5 font-medium rounded-lg transition-colors flex items-center gap-2 ${
               canCreate
-                ? 'bg-accent-pink text-background hover:bg-accent-pink/90'
-                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                ? 'bg-transparent border border-accent-pink/40 text-accent-pink/90 hover:border-accent-pink hover:bg-accent-pink/10'
+                : 'bg-gray-600/30 text-gray-400 border border-gray-500/30 cursor-not-allowed'
             }`}
           >
             {!canCreate && <span>🔒</span>}
@@ -750,10 +750,10 @@ export function Dashboard() {
           <div className="dashboard-section bg-panel border border-accent-cyan/20 rounded-xl p-6">
             <h3 className="text-lg font-bold text-text-primary mb-4">Quick Stats</h3>
             
-            <div className="space-y-3">
+            <div className="space-y-2">
               <button
                 onClick={() => handleStatClick('status', 'open', 'Open Cases')}
-                className="flex justify-between items-center w-full hover:bg-background/50 p-2 rounded-lg transition-colors"
+                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
               >
                 <span className="text-text-muted text-sm">Open Cases</span>
                 <span className="text-text-primary font-bold">{stats?.active ?? 0}</span>
@@ -761,7 +761,7 @@ export function Dashboard() {
               
               <button
                 onClick={() => handleStatClick('status', 'closed_no_arrest', 'Closed Cases')}
-                className="flex justify-between items-center w-full hover:bg-background/50 p-2 rounded-lg transition-colors"
+                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
               >
                 <span className="text-text-muted text-sm">Closed Cases</span>
                 <span className="text-text-primary font-bold">{stats?.closed ?? 0}</span>
@@ -769,7 +769,7 @@ export function Dashboard() {
               
               <button
                 onClick={() => handleStatClick('status', 'referred', 'Transferred Cases')}
-                className="flex justify-between items-center w-full hover:bg-background/50 p-2 rounded-lg transition-colors"
+                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
               >
                 <span className="text-text-muted text-sm">Transferred Cases</span>
                 <span className="text-text-primary font-bold">{stats?.transferred ?? 0}</span>
@@ -779,7 +779,7 @@ export function Dashboard() {
                 onClick={() => {
                   alert(`${stats?.warrantsThisMonth ?? 0} warrants written in ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`);
                 }}
-                className="flex justify-between items-center w-full hover:bg-background/50 p-2 rounded-lg transition-colors"
+                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
               >
                 <span className="text-text-muted text-sm">Warrants This Month</span>
                 <span className="text-text-primary font-bold">{stats?.warrantsThisMonth ?? 0}</span>

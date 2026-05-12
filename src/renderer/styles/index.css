@@ -40,6 +40,26 @@ body {
   background: #00B8E6;
 }
 
+/* Slim, unobtrusive scrollbar for case-detail tab row */
+.pulse-tabs-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 212, 255, 0.45) transparent;
+}
+.pulse-tabs-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.pulse-tabs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pulse-tabs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.35);
+  border-radius: 3px;
+}
+.pulse-tabs-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.6);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from {

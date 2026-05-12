@@ -349,6 +349,129 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rmsLoadReports: (caseId: number) => ipcRenderer.invoke('rms-load-reports', caseId),
   rmsDeleteReport: (caseId: number, reportId: string) => ipcRenderer.invoke('rms-delete-report', caseId, reportId),
 
+  // Meta Warrant Parser (ported from VIPER)
+  metaWarrantScan: (caseId: number) =>
+    ipcRenderer.invoke('meta-warrant-scan', caseId),
+  metaWarrantPickFile: () =>
+    ipcRenderer.invoke('meta-warrant-pick-file'),
+  metaWarrantImport: (args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }) =>
+    ipcRenderer.invoke('meta-warrant-import', args),
+  metaWarrantListImports: (caseId: number) =>
+    ipcRenderer.invoke('meta-warrant-list-imports', caseId),
+  metaWarrantGetImport: (importId: number) =>
+    ipcRenderer.invoke('meta-warrant-get-import', importId),
+  metaWarrantDeleteImport: (importId: number) =>
+    ipcRenderer.invoke('meta-warrant-delete-import', importId),
+  metaWarrantReadMedia: (args: { importId: number; fileName: string }) =>
+    ipcRenderer.invoke('meta-warrant-read-media', args),
+  metaWarrantExportBundle: (args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }) =>
+    ipcRenderer.invoke('meta-warrant-export-bundle', args),
+
+  // Google Warrant Parser (mirrors Meta — provider='google')
+  googleWarrantScan: (caseId: number) =>
+    ipcRenderer.invoke('google-warrant-scan', caseId),
+  googleWarrantPickFile: () =>
+    ipcRenderer.invoke('google-warrant-pick-file'),
+  googleWarrantImport: (args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }) =>
+    ipcRenderer.invoke('google-warrant-import', args),
+  googleWarrantListImports: (caseId: number) =>
+    ipcRenderer.invoke('google-warrant-list-imports', caseId),
+  googleWarrantGetImport: (importId: number) =>
+    ipcRenderer.invoke('google-warrant-get-import', importId),
+  googleWarrantDeleteImport: (importId: number) =>
+    ipcRenderer.invoke('google-warrant-delete-import', importId),
+  googleWarrantReadMedia: (args: { importId: number; fileName: string }) =>
+    ipcRenderer.invoke('google-warrant-read-media', args),
+  googleWarrantExportBundle: (args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }) =>
+    ipcRenderer.invoke('google-warrant-export-bundle', args),
+
+  // Kik Warrant Parser (mirrors Meta/Google — provider='kik')
+  kikWarrantScan: (caseId: number) =>
+    ipcRenderer.invoke('kik-warrant-scan', caseId),
+  kikWarrantPickFile: () =>
+    ipcRenderer.invoke('kik-warrant-pick-file'),
+  kikWarrantImport: (args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }) =>
+    ipcRenderer.invoke('kik-warrant-import', args),
+  kikWarrantListImports: (caseId: number) =>
+    ipcRenderer.invoke('kik-warrant-list-imports', caseId),
+  kikWarrantGetImport: (importId: number) =>
+    ipcRenderer.invoke('kik-warrant-get-import', importId),
+  kikWarrantDeleteImport: (importId: number) =>
+    ipcRenderer.invoke('kik-warrant-delete-import', importId),
+  kikWarrantReadMedia: (args: { importId: number; fileName: string }) =>
+    ipcRenderer.invoke('kik-warrant-read-media', args),
+  kikWarrantExportBundle: (args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }) =>
+    ipcRenderer.invoke('kik-warrant-export-bundle', args),
+
+  // Snapchat Warrant Parser (provider='snap')
+  snapWarrantScan: (caseId: number) =>
+    ipcRenderer.invoke('snap-warrant-scan', caseId),
+  snapWarrantPickFile: () =>
+    ipcRenderer.invoke('snap-warrant-pick-file'),
+  snapWarrantImport: (args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }) =>
+    ipcRenderer.invoke('snap-warrant-import', args),
+  snapWarrantListImports: (caseId: number) =>
+    ipcRenderer.invoke('snap-warrant-list-imports', caseId),
+  snapWarrantGetImport: (importId: number) =>
+    ipcRenderer.invoke('snap-warrant-get-import', importId),
+  snapWarrantDeleteImport: (importId: number) =>
+    ipcRenderer.invoke('snap-warrant-delete-import', importId),
+  snapWarrantReadMedia: (args: { importId: number; fileName: string }) =>
+    ipcRenderer.invoke('snap-warrant-read-media', args),
+  snapWarrantExportBundle: (args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }) =>
+    ipcRenderer.invoke('snap-warrant-export-bundle', args),
+
+  // Discord Warrant Parser (provider='discord')
+  discordWarrantScan: (caseId: number) =>
+    ipcRenderer.invoke('discord-warrant-scan', caseId),
+  discordWarrantPickFile: () =>
+    ipcRenderer.invoke('discord-warrant-pick-file'),
+  discordWarrantImport: (args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }) =>
+    ipcRenderer.invoke('discord-warrant-import', args),
+  discordWarrantListImports: (caseId: number) =>
+    ipcRenderer.invoke('discord-warrant-list-imports', caseId),
+  discordWarrantGetImport: (importId: number) =>
+    ipcRenderer.invoke('discord-warrant-get-import', importId),
+  discordWarrantDeleteImport: (importId: number) =>
+    ipcRenderer.invoke('discord-warrant-delete-import', importId),
+  discordWarrantReadMedia: (args: { importId: number; fileName: string }) =>
+    ipcRenderer.invoke('discord-warrant-read-media', args),
+  discordWarrantExportBundle: (args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }) =>
+    ipcRenderer.invoke('discord-warrant-export-bundle', args),
+
+  // Evidence v2 (Viper-style typed evidence)
+  evidencePickFiles: (opts: { mode?: 'files' | 'folder' }) =>
+    ipcRenderer.invoke('evidence-pick-files', opts),
+  evidenceSave: (args: {
+    caseId: number; caseNumber: string; type: string; tag?: string | null;
+    description: string; storageMode: 'copy' | 'reference'; sourcePaths: string[];
+    referenceFolder?: string; meta?: any; category?: string; subdir?: string;
+  }) => ipcRenderer.invoke('evidence-save', args),
+  evidenceUpdate: (args: { id: number; patch: { type?: string; tag?: string | null; description?: string; category?: string; meta?: any } }) =>
+    ipcRenderer.invoke('evidence-update', args),
+  evidenceDeleteV2: (args: { id: number; deleteFiles?: boolean }) =>
+    ipcRenderer.invoke('evidence-delete', args),
+  evidenceOpenFile: (args: { id: number; relPath: string }) =>
+    ipcRenderer.invoke('evidence-open-file', args),
+  evidenceRevealFolder: (args: { id: number; relPath?: string }) =>
+    ipcRenderer.invoke('evidence-reveal-folder', args),
+  evidenceReadFile: (args: { id: number; relPath: string; asText?: boolean; maxBytes?: number }) =>
+    ipcRenderer.invoke('evidence-read-file', args),
+
+  // Datapilot
+  datapilotScan: (args: { folderPath: string }) =>
+    ipcRenderer.invoke('datapilot-scan', args),
+  datapilotScanRoot: (args: { rootPath: string; maxDepth?: number }) =>
+    ipcRenderer.invoke('datapilot-scan-root', args),
+
+  // Warrant Return Flags (shared by all warrant parsers)
+  warrantFlagToggle: (args: { caseId: number; provider: string; importId?: number | null; section: string; flagKey: string; notes?: string }) =>
+    ipcRenderer.invoke('warrant-flag-toggle', args),
+  warrantFlagList: (args: { caseId: number; provider: string; importId?: number | null }) =>
+    ipcRenderer.invoke('warrant-flag-list', args),
+  warrantFlagClear: (args: { caseId: number; provider: string; importId?: number | null }) =>
+    ipcRenderer.invoke('warrant-flag-clear', args),
+
   // BYOA (Bring Your Own Application)
   byoaCreateView: (id: string, url: string) => ipcRenderer.invoke('byoa-create-view', { id, url }),
   byoaSetBounds: (id: string, bounds: any) => ipcRenderer.send('byoa-set-bounds', { id, bounds }),
@@ -513,4 +636,157 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('save-ops-template-backup', data),
   loadOpsTemplateBackup: () =>
     ipcRenderer.invoke('load-ops-template-backup'),
+
+  // ========== Resource Download Capture ==========
+  onResourceDownloadComplete: (cb: (info: {
+    id: string; partition: string; provider: string; filename: string;
+    mimeType: string; totalBytes: number; tempPath: string; sourceUrl: string; startedAt: string;
+  }) => void) => {
+    const handler = (_e: any, info: any) => cb(info);
+    ipcRenderer.on('resource-download-complete', handler);
+    return () => ipcRenderer.removeListener('resource-download-complete', handler);
+  },
+  onResourceDownloadProgress: (cb: (info: { id: string; state: string; received: number; total: number }) => void) => {
+    const handler = (_e: any, info: any) => cb(info);
+    ipcRenderer.on('resource-download-progress', handler);
+    return () => ipcRenderer.removeListener('resource-download-progress', handler);
+  },
+  onResourceDownloadFailed: (cb: (info: { id: string; state: string }) => void) => {
+    const handler = (_e: any, info: any) => cb(info);
+    ipcRenderer.on('resource-download-failed', handler);
+    return () => ipcRenderer.removeListener('resource-download-failed', handler);
+  },
+  resourceDownloadRouteToEvidence: (args: {
+    downloadId: string; caseId: number; caseNumber: string;
+    type?: string; tag?: string | null; description?: string;
+  }) => ipcRenderer.invoke('resource-download-route-to-evidence', args),
+  resourceDownloadRouteToCybertip: (args: {
+    downloadId: string; caseId: number; caseNumber: string;
+    officerDescription?: string; ipAddress?: string; datetime?: string;
+    ncmecFilename?: string; csamDescription?: string;
+  }) => ipcRenderer.invoke('resource-download-route-to-cybertip', args),
+  resourceDownloadMoveToDownloads: (downloadId: string) =>
+    ipcRenderer.invoke('resource-download-move-to-downloads', { downloadId }),
+  resourceDownloadDiscard: (downloadId: string) =>
+    ipcRenderer.invoke('resource-download-discard', { downloadId }),
+  resourceDownloadRouteToWarrantProduction: (args: {
+    downloadId: string; caseId: number; caseNumber: string;
+    subfolder?: string | null; description?: string;
+  }) => ipcRenderer.invoke('resource-download-route-to-warrant-production', args),
+
+  // ===== Resource Hub Capture (PDF + SingleFile HTML) =====
+  resourceCapturePdf: (resourceId: string) =>
+    ipcRenderer.invoke('resource-capture-pdf', { resourceId }),
+  resourceCaptureHtml: (resourceId: string) =>
+    ipcRenderer.invoke('resource-capture-html', { resourceId }),
+
+  // ===== Audit Log =====
+  auditLogGet: (limit?: number) =>
+    ipcRenderer.invoke('audit-log-get', { limit }),
+  auditLogVerify: () =>
+    ipcRenderer.invoke('audit-log-verify'),
+  auditLogExport: () =>
+    ipcRenderer.invoke('audit-log-export'),
+  auditLogEvent: (eventType: string, data?: Record<string, any>) =>
+    ipcRenderer.invoke('audit-log-event', { eventType, data }),
+  auditLogWindowsGet: () =>
+    ipcRenderer.invoke('audit-log-windows-get'),
+  auditLogWindowsSet: (enabled: boolean) =>
+    ipcRenderer.invoke('audit-log-windows-set', { enabled }),
+
+  // ===== UC Chat Operations =====
+  // Personas
+  ucPersonaList: (args?: { includeArchived?: boolean }) =>
+    ipcRenderer.invoke('uc-persona-list', args || {}),
+  ucPersonaGet: (id: number) =>
+    ipcRenderer.invoke('uc-persona-get', id),
+  ucPersonaCreate: (input: any) =>
+    ipcRenderer.invoke('uc-persona-create', input),
+  ucPersonaUpdate: (id: number, input: any) =>
+    ipcRenderer.invoke('uc-persona-update', { id, input }),
+  ucPersonaArchive: (id: number) =>
+    ipcRenderer.invoke('uc-persona-archive', id),
+  ucPersonaUnarchive: (id: number) =>
+    ipcRenderer.invoke('uc-persona-unarchive', id),
+
+  // Chats
+  ucChatList: (args?: { includeArchived?: boolean; personaId?: number }) =>
+    ipcRenderer.invoke('uc-chat-list', args || {}),
+  ucChatGet: (id: number) =>
+    ipcRenderer.invoke('uc-chat-get', id),
+  ucChatCreate: (input: any) =>
+    ipcRenderer.invoke('uc-chat-create', input),
+  ucChatUpdate: (id: number, input: any) =>
+    ipcRenderer.invoke('uc-chat-update', { id, input }),
+  ucChatArchive: (id: number) =>
+    ipcRenderer.invoke('uc-chat-archive', id),
+  ucChatUnarchive: (id: number) =>
+    ipcRenderer.invoke('uc-chat-unarchive', id),
+  ucChatMarkRead: (id: number) =>
+    ipcRenderer.invoke('uc-chat-mark-read', id),
+
+  // Case bindings
+  ucChatLinkCase: (chatId: number, caseId: number, role?: 'primary' | 'secondary') =>
+    ipcRenderer.invoke('uc-chat-link-case', { chatId, caseId, role }),
+  ucChatUnlinkCase: (chatId: number, caseId: number) =>
+    ipcRenderer.invoke('uc-chat-unlink-case', { chatId, caseId }),
+  ucChatCaseLinks: (chatId: number) =>
+    ipcRenderer.invoke('uc-chat-case-links', chatId),
+  ucChatEvents: (chatId: number, limit?: number) =>
+    ipcRenderer.invoke('uc-chat-events', { chatId, limit }),
+
+  // BrowserView lifecycle
+  ucChatBvCreate: (chatId: number, personaId: number, url: string) =>
+    ipcRenderer.invoke('uc-chat-bv-create', { chatId, personaId, url }),
+  ucChatBvSetBounds: (chatId: number, bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.send('uc-chat-bv-set-bounds', { chatId, bounds }),
+  ucChatBvSetVisible: (chatId: number, visible: boolean) =>
+    ipcRenderer.send('uc-chat-bv-set-visible', { chatId, visible }),
+  ucChatBvLoadUrl: (chatId: number, url: string) =>
+    ipcRenderer.send('uc-chat-bv-load-url', { chatId, url }),
+  ucChatBvReload: (chatId: number) =>
+    ipcRenderer.send('uc-chat-bv-reload', chatId),
+  ucChatBvBack: (chatId: number) =>
+    ipcRenderer.send('uc-chat-bv-back', chatId),
+  ucChatBvDestroy: (chatId: number) =>
+    ipcRenderer.send('uc-chat-bv-destroy', chatId),
+  ucChatBvHideAll: () =>
+    ipcRenderer.send('uc-chat-bv-hide-all'),
+
+  // Alerts (renderer subscribes)
+  ucOnAlert: (cb: (payload: any) => void) => {
+    const wrapped = (_e: any, payload: any) => cb(payload);
+    ipcRenderer.on('uc-alert', wrapped);
+    return () => ipcRenderer.removeListener('uc-alert', wrapped);
+  },
+  ucDiscreetModeGet: () =>
+    ipcRenderer.invoke('uc-discreet-mode-get'),
+  ucDiscreetModeSet: (on: boolean) =>
+    ipcRenderer.invoke('uc-discreet-mode-set', on),
+
+  // Evidence Log
+  ucEvidenceLogList: (filter?: { caseId?: number; chatId?: number; limit?: number }) =>
+    ipcRenderer.invoke('uc-evidence-log-list', filter || {}),
+  ucEvidenceLogVerify: (id: number) =>
+    ipcRenderer.invoke('uc-evidence-log-verify', id),
+
+  // Persona Photo Library
+  ucPhotoList: (personaId: number, includeArchived = false) =>
+    ipcRenderer.invoke('uc-photo-list', { personaId, includeArchived }),
+  ucPhotoAdd: (input: { personaId: number; srcPath: string; caption?: string }) =>
+    ipcRenderer.invoke('uc-photo-add', input),
+  ucPhotoUpdate: (id: number, input: { caption?: string | null; sort_order?: number }) =>
+    ipcRenderer.invoke('uc-photo-update', { id, input }),
+  ucPhotoArchive: (id: number) =>
+    ipcRenderer.invoke('uc-photo-archive', id),
+  ucPhotoUnarchive: (id: number) =>
+    ipcRenderer.invoke('uc-photo-unarchive', id),
+  ucPhotoUses: (photoId: number) =>
+    ipcRenderer.invoke('uc-photo-uses', photoId),
+  ucPhotoCopyToClipboard: (photoId: number, chatId: number) =>
+    ipcRenderer.invoke('uc-photo-copy-to-clipboard', { photoId, chatId }),
+  ucPhotoPickAndAdd: (personaId: number) =>
+    ipcRenderer.invoke('uc-photo-pick-and-add', { personaId }),
+  ucPhotoPickFiles: () =>
+    ipcRenderer.invoke('uc-photo-pick-files'),
 });

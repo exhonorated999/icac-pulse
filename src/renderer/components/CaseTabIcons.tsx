@@ -124,3 +124,69 @@ export const RMSIcon = ({ className = "" }: { className?: string }) => (
       stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
   </svg>
 );
+
+export const MetaWarrantIcon = ({ className = "" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Infinity / Meta-style mark over a folder */}
+    <path d="M3 18a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M5 16V8a2 2 0 012-2h3l2 2h5a2 2 0 012 2v6"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M8.5 11.5c1-1.5 2.5-1.5 3.5 0s2.5 1.5 3.5 0"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+export const GoogleWarrantIcon = ({ className = "" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Folder with a 'G' mark */}
+    <path d="M3 18a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M5 16V8a2 2 0 012-2h3l2 2h5a2 2 0 012 2v6"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M14 11h-2.2a1.8 1.8 0 100 3.6c1 0 1.7-.6 1.9-1.4H12"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const KikWarrantIcon = ({ className = "" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Folder with chat bubble — Kik */}
+    <path d="M3 18a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M5 16V8a2 2 0 012-2h3l2 2h5a2 2 0 012 2v6"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M9 10.5h6M9 12.5h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M15 14.5l-1.5-1.5H9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const SnapWarrantIcon = ({ className = "" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Folder with ghost — Snapchat */}
+    <path d="M3 18a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M5 16V8a2 2 0 012-2h3l2 2h5a2 2 0 012 2v6"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    {/* Ghost silhouette */}
+    <path d="M9 13c0-2 1.34-3.5 3-3.5s3 1.5 3 3.5v1.2c.4.1.7.4.7.8 0 .3-.2.5-.6.5-.4.3-.9.5-1.6.5h-3c-.7 0-1.2-.2-1.6-.5-.4 0-.6-.2-.6-.5 0-.4.3-.7.7-.8V13z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <circle cx="11" cy="12" r="0.4" fill="currentColor"/>
+    <circle cx="13" cy="12" r="0.4" fill="currentColor"/>
+  </svg>
+);
+
+export const DiscordWarrantIcon = ({ className = "" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Folder */}
+    <path d="M3 18a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1z"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <path d="M5 16V8a2 2 0 012-2h3l2 2h5a2 2 0 012 2v6"
+      stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    {/* Discord-style game controller silhouette */}
+    <path d="M8.8 9.5c-.8 0-1.5.5-1.7 1.3L6.5 14c-.1.6.3 1.2.9 1.2.4 0 .7-.2.9-.5l.5-.7h6.4l.5.7c.2.3.5.5.9.5.6 0 1-.6.9-1.2l-.6-3.2c-.2-.8-.9-1.3-1.7-1.3H8.8z"
+      stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    <circle cx="10" cy="12" r="0.6" fill="currentColor"/>
+    <circle cx="14" cy="12" r="0.6" fill="currentColor"/>
+  </svg>
+);

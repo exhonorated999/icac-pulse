@@ -11,6 +11,11 @@ import { CDRTab } from '../components/CDRTab';
 import { ApertureTab } from '../components/ApertureTab';
 import { OversightTab } from '../components/OversightTab';
 import { RMSTab } from '../components/RMSTab';
+import { MetaWarrantTab } from '../components/MetaWarrantTab';
+import { GoogleWarrantTab } from '../components/GoogleWarrantTab';
+import { KikWarrantTab } from '../components/KikWarrantTab';
+import { SnapWarrantTab } from '../components/SnapWarrantTab';
+import { DiscordWarrantTab } from '../components/DiscordWarrantTab';
 import { 
   OverviewIcon, 
   NotesIcon, 
@@ -23,7 +28,12 @@ import {
   CDRIcon,
   ApertureIcon,
   OversightIcon,
-  RMSIcon
+  RMSIcon,
+  MetaWarrantIcon,
+  GoogleWarrantIcon,
+  KikWarrantIcon,
+  SnapWarrantIcon,
+  DiscordWarrantIcon
 } from '../components/CaseTabIcons';
 import { useToast } from '../components/Toast';
 import { ExportCaseDialog } from '../components/ExportCaseDialog';
@@ -96,12 +106,17 @@ const DEFAULT_TAB_ORDER = [
   { id: 'prosecution', label: 'Prosecution', IconComponent: ProsecutionIcon },
 ];
 
-// Investigative add-on modules (can be added/removed per case)
+// Investigative add-on modules (can be added/removed per case — LEGACY cases only)
 const ADDON_MODULES = [
   { id: 'cdr', label: 'CDR Analysis', IconComponent: CDRIcon, description: 'Call Detail Record analysis & analytics' },
   { id: 'aperture', label: 'Aperture', IconComponent: ApertureIcon, description: 'Email forensics (.eml / .mbox)' },
   { id: 'oversight', label: 'Oversight', IconComponent: OversightIcon, description: 'Project Oversight case import' },
   { id: 'rms', label: 'RMS', IconComponent: RMSIcon, description: 'Report Management System imports' },
+  { id: 'metaWarrant', label: 'Meta Warrant', IconComponent: MetaWarrantIcon, description: 'Facebook / Instagram warrant return parser' },
+  { id: 'googleWarrant', label: 'Google Warrant', IconComponent: GoogleWarrantIcon, description: 'Google warrant return parser' },
+  { id: 'kikWarrant', label: 'Kik Warrant', IconComponent: KikWarrantIcon, description: 'Kik Messenger warrant return parser' },
+  { id: 'snapWarrant', label: 'Snapchat Warrant', IconComponent: SnapWarrantIcon, description: 'Snapchat warrant return parser' },
+  { id: 'discordWarrant', label: 'Discord Warrant', IconComponent: DiscordWarrantIcon, description: 'Discord warrant return parser' },
 ];
 
 // Map addon module IDs to their tab definitions
@@ -110,7 +125,59 @@ const ADDON_TAB_MAP: Record<string, { id: string; label: string; IconComponent: 
   aperture: { id: 'aperture', label: 'Aperture', IconComponent: ApertureIcon },
   oversight: { id: 'oversight', label: 'Oversight', IconComponent: OversightIcon },
   rms: { id: 'rms', label: 'RMS', IconComponent: RMSIcon },
+  metaWarrant: { id: 'metaWarrant', label: 'Meta Warrant', IconComponent: MetaWarrantIcon },
+  googleWarrant: { id: 'googleWarrant', label: 'Google Warrant', IconComponent: GoogleWarrantIcon },
+  kikWarrant: { id: 'kikWarrant', label: 'Kik Warrant', IconComponent: KikWarrantIcon },
+  snapWarrant: { id: 'snapWarrant', label: 'Snapchat Warrant', IconComponent: SnapWarrantIcon },
+  discordWarrant: { id: 'discordWarrant', label: 'Discord Warrant', IconComponent: DiscordWarrantIcon },
 };
+
+// Full module catalog for MODULAR cases (created after the case-modules feature).
+// "section" maps to the modal grouping: case management vs investigative tools.
+// "overview" is always present and not user-selectable.
+type ModuleSection = 'management' | 'tools';
+const SELECTABLE_MODULES: { id: string; label: string; IconComponent: any; description: string; section: ModuleSection }[] = [
+  // CASE MANAGEMENT
+  { id: 'suspect',     label: 'Suspect',     IconComponent: SuspectIcon,     description: 'Suspect details & identifiers',    section: 'management' },
+  { id: 'evidence',    label: 'Evidence',    IconComponent: EvidenceIcon,    description: 'Evidence inventory & chain of custody', section: 'management' },
+  { id: 'warrants',    label: 'Warrants',    IconComponent: WarrantsIcon,    description: 'Search & arrest warrants',         section: 'management' },
+  { id: 'notes',       label: 'Case Notes',  IconComponent: NotesIcon,       description: 'Investigator notes',               section: 'management' },
+  { id: 'report',      label: 'Report',      IconComponent: ReportIcon,      description: 'Case reports & narrative',         section: 'management' },
+  { id: 'operations',  label: 'OPS Plan',    IconComponent: OpPlanIcon,      description: 'Operations plan',                  section: 'management' },
+  { id: 'prosecution', label: 'Prosecution', IconComponent: ProsecutionIcon, description: 'Prosecution package',              section: 'management' },
+  // INVESTIGATIVE TOOLS
+  { id: 'cdr',       label: 'CDR Analysis', IconComponent: CDRIcon,       description: 'Call Detail Record analysis & analytics', section: 'tools' },
+  { id: 'aperture',  label: 'Aperture',     IconComponent: ApertureIcon,  description: 'Email forensics (.eml / .mbox)',          section: 'tools' },
+  { id: 'oversight', label: 'Oversight',    IconComponent: OversightIcon, description: 'Project Oversight case import',           section: 'tools' },
+  { id: 'rms',       label: 'RMS',          IconComponent: RMSIcon,       description: 'Report Management System imports',        section: 'tools' },
+  { id: 'metaWarrant', label: 'Meta Warrant', IconComponent: MetaWarrantIcon, description: 'Facebook / Instagram warrant return parser', section: 'tools' },
+  { id: 'googleWarrant', label: 'Google Warrant', IconComponent: GoogleWarrantIcon, description: 'Google warrant return parser', section: 'tools' },
+  { id: 'kikWarrant', label: 'Kik Warrant', IconComponent: KikWarrantIcon, description: 'Kik Messenger warrant return parser', section: 'tools' },
+  { id: 'snapWarrant', label: 'Snapchat Warrant', IconComponent: SnapWarrantIcon, description: 'Snapchat warrant return parser', section: 'tools' },
+  { id: 'discordWarrant', label: 'Discord Warrant', IconComponent: DiscordWarrantIcon, description: 'Discord warrant return parser', section: 'tools' },
+];
+
+// Per-case-type default selections applied at case creation (Overview is always included).
+// Exported via helper so case-creation forms (CyberTipForm, ChatForm, P2PForm, OtherForm)
+// can stamp these into localStorage immediately after createCase().
+export const DEFAULT_MODULES_BY_TYPE: Record<string, string[]> = {
+  cybertip: ['suspect', 'warrants', 'evidence', 'report'],
+  chat:     ['suspect', 'warrants', 'report'],
+  p2p:      ['suspect', 'warrants', 'report', 'evidence'],
+  other:    ['suspect', 'report'],
+};
+
+/**
+ * Initialize modular-mode storage for a freshly created case.
+ * Call this AFTER createCase() in each case-creation form.
+ * Marks the case as "modular" (so CaseDetail uses the new behavior) and
+ * pre-fills the per-type default module selection.
+ */
+export function initializeCaseModules(caseId: number | string, caseType: string) {
+  const defaults = DEFAULT_MODULES_BY_TYPE[caseType] ?? DEFAULT_MODULES_BY_TYPE.other;
+  localStorage.setItem(`caseModules_${caseId}`, JSON.stringify(defaults));
+  localStorage.setItem(`caseModulesV2_${caseId}`, '1');
+}
 
 export function CaseDetail() {
   const { caseId } = useParams<{ caseId: string }>();
@@ -128,9 +195,11 @@ export function CaseDetail() {
   const [files, setFiles] = useState<CyberTipFile[]>([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [editMode, setEditMode] = useState(false);
-  const [managingTabOrder, setManagingTabOrder] = useState(false);
   const [showModuleMenu, setShowModuleMenu] = useState(false);
   const moduleMenuRef = useRef<HTMLDivElement>(null);
+  // Modular-mode flag: cases created after the modules feature have this localStorage marker.
+  // Legacy cases (pre-feature) keep the original always-7-tabs behavior.
+  const isModular = !!caseId && localStorage.getItem(`caseModulesV2_${caseId}`) === '1';
   const [enabledModules, setEnabledModules] = useState<string[]>(() => {
     // Load enabled modules for this case from localStorage
     const saved = localStorage.getItem(`caseModules_${caseId}`);
@@ -219,6 +288,27 @@ export function CaseDetail() {
 
   // Sync enabled modules → tabs
   useEffect(() => {
+    if (isModular) {
+      // MODULAR mode: tabs = Overview + selected modules, ordered by DEFAULT_TAB_ORDER.
+      // The user fully controls which non-overview tabs are visible via the modal.
+      const overviewTab = DEFAULT_TAB_ORDER.find(t => t.id === 'overview')!;
+      const allMap: Record<string, any> = {
+        ...Object.fromEntries(DEFAULT_TAB_ORDER.map(t => [t.id, t])),
+        ...ADDON_TAB_MAP,
+      };
+      const orderIndex: Record<string, number> = {};
+      [...DEFAULT_TAB_ORDER.map(t => t.id), 'cdr', 'aperture', 'oversight', 'rms', 'metaWarrant', 'googleWarrant', 'kikWarrant', 'snapWarrant', 'discordWarrant'].forEach((id, i) => {
+        orderIndex[id] = i;
+      });
+      const selected = enabledModules
+        .filter(id => !!allMap[id])
+        .sort((a, b) => (orderIndex[a] ?? 999) - (orderIndex[b] ?? 999))
+        .map(id => allMap[id]);
+      setTabs([overviewTab, ...selected]);
+      return;
+    }
+    // LEGACY mode: preserve existing behavior — all DEFAULT_TAB_ORDER tabs always visible,
+    // addon modules toggle in/out.
     setTabs(prev => {
       const baseTabs = prev.filter(t => DEFAULT_TAB_ORDER.some(d => d.id === t.id));
       const addonTabs = enabledModules
@@ -230,7 +320,7 @@ export function CaseDetail() {
       const seen = new Set<string>();
       return merged.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
     });
-  }, [enabledModules]);
+  }, [enabledModules, isModular]);
 
   const loadCaseNotes = async () => {
     if (!caseId) return;
@@ -1323,6 +1413,20 @@ export function CaseDetail() {
   };
 
   const removeModule = (moduleId: string) => {
+    // First delete on a LEGACY case migrates it to modular mode:
+    // snapshot the currently visible non-overview tabs (minus the one being deleted)
+    // as the new enabled-modules selection, stamp the V2 marker so future renders
+    // use the modular code path. From then on the case behaves like a new case.
+    if (!isModular && caseId) {
+      const snapshot = tabs.map(t => t.id).filter(id => id !== 'overview' && id !== moduleId);
+      localStorage.setItem(`caseModules_${caseId}`, JSON.stringify(snapshot));
+      localStorage.setItem(`caseModulesV2_${caseId}`, '1');
+      setEnabledModules(snapshot);
+      setTabs(prev => prev.filter(t => t.id !== moduleId));
+      if (activeTab === moduleId) setActiveTab('overview');
+      return;
+    }
+    // Modular path
     const updated = enabledModules.filter(m => m !== moduleId);
     setEnabledModules(updated);
     localStorage.setItem(`caseModules_${caseId}`, JSON.stringify(updated));
@@ -1335,22 +1439,15 @@ export function CaseDetail() {
   const moveTab = (index: number, direction: 'left' | 'right') => {
     const newTabs = [...tabs];
     const targetIndex = direction === 'left' ? index - 1 : index + 1;
-    
+
     // Swap tabs
     if (targetIndex >= 0 && targetIndex < newTabs.length) {
       [newTabs[index], newTabs[targetIndex]] = [newTabs[targetIndex], newTabs[index]];
       setTabs(newTabs);
-    }
-  };
-
-  // Toggle manage order mode
-  const toggleManageOrder = () => {
-    if (managingTabOrder) {
-      // Exiting manage mode - save to localStorage
-      const tabOrder = tabs.map(tab => tab.id);
+      // Persist new order immediately (Viper-style — no manage-order toggle)
+      const tabOrder = newTabs.map(tab => tab.id);
       localStorage.setItem('caseTabOrder', JSON.stringify(tabOrder));
     }
-    setManagingTabOrder(!managingTabOrder);
   };
 
   return (
@@ -1473,31 +1570,43 @@ export function CaseDetail() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center w-full min-w-0">
+          {/* Scrollable tab list */}
+          <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden pulse-tabs-scroll">
+            <div className="flex gap-2 items-center w-max py-0.5">
           {tabs.map((tab, index) => {
             const IconComponent = tab.IconComponent;
+            // Overview is permanent and cannot be deleted.
+            const canDelete = tab.id !== 'overview';
+            const showLeft = index > 0;
+            const showRight = index < tabs.length - 1;
             return (
-              <div key={tab.id} className="flex items-center gap-1">
-                {/* Left arrow */}
-                {managingTabOrder && index > 0 && (
+              <div
+                key={tab.id}
+                className="relative flex items-center group/tab"
+              >
+                {/* Left arrow — appears on hover */}
+                {showLeft && (
                   <button
-                    onClick={() => moveTab(index, 'left')}
-                    className="w-6 h-6 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 
-                             flex items-center justify-center transition-colors"
+                    onClick={(e) => { e.stopPropagation(); moveTab(index, 'left'); }}
+                    className="opacity-0 group-hover/tab:opacity-100 focus:opacity-100
+                               w-5 h-5 mr-0.5 rounded
+                               text-accent-cyan/70 hover:text-accent-cyan hover:bg-accent-cyan/15
+                               flex items-center justify-center transition-all"
                     title="Move left"
+                    tabIndex={-1}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
                 )}
-                
+
                 {/* Tab button */}
                 <button
-                  onClick={() => !managingTabOrder && setActiveTab(tab.id)}
+                  onClick={() => setActiveTab(tab.id)}
                   className={`
-                    px-4 py-2 rounded-lg transition-all flex items-center gap-2
-                    ${managingTabOrder ? 'cursor-default' : 'cursor-pointer'}
+                    px-4 py-2 rounded-lg transition-all flex items-center gap-2 cursor-pointer
                     ${activeTab === tab.id
                       ? 'bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/30'
                       : 'text-text-muted hover:text-text-primary hover:bg-accent-cyan/5'
@@ -1507,103 +1616,223 @@ export function CaseDetail() {
                   <IconComponent className="w-5 h-5" />
                   <span className="font-medium">{tab.label}</span>
                 </button>
-                
-                {/* Right arrow */}
-                {managingTabOrder && index < tabs.length - 1 && (
+
+                {/* Right arrow — appears on hover */}
+                {showRight && (
                   <button
-                    onClick={() => moveTab(index, 'right')}
-                    className="w-6 h-6 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 
-                             flex items-center justify-center transition-colors"
+                    onClick={(e) => { e.stopPropagation(); moveTab(index, 'right'); }}
+                    className="opacity-0 group-hover/tab:opacity-100 focus:opacity-100
+                               w-5 h-5 ml-0.5 rounded
+                               text-accent-cyan/70 hover:text-accent-cyan hover:bg-accent-cyan/15
+                               flex items-center justify-center transition-all"
                     title="Move right"
+                    tabIndex={-1}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+
+                {/* Delete X — appears on hover (top-right of tab pill) */}
+                {canDelete && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeModule(tab.id);
+                    }}
+                    title={`Remove ${tab.label} module`}
+                    className="opacity-0 group-hover/tab:opacity-100 focus:opacity-100
+                               absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full
+                               bg-red-500 text-white border border-red-300/40 shadow
+                               hover:bg-red-600
+                               flex items-center justify-center transition-all z-10"
+                    tabIndex={-1}
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 )}
               </div>
             );
           })}
-          
-          {/* Manage/Set Order button */}
-          <button
-            onClick={toggleManageOrder}
-            className={`ml-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2
-                     ${managingTabOrder 
-                       ? 'bg-accent-cyan text-background hover:bg-accent-cyan/90' 
-                       : 'text-text-muted hover:text-accent-cyan border border-text-muted/30 hover:border-accent-cyan/50'
-                     }`}
-          >
-            {managingTabOrder ? (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Set Order
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                        d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-                Manage Order
-              </>
-            )}
-          </button>
+            </div>
+          </div>
 
-          {/* Add Module dropdown */}
-          <div className="relative ml-1" ref={moduleMenuRef}>
+          {/* Pinned right action buttons */}
+          <div className="flex gap-2 items-center flex-shrink-0 ml-2 pl-2 border-l border-text-muted/15">
+          {/* Manage Modules button (opens modal) */}
+          <div className="relative">
             <button
-              onClick={() => setShowModuleMenu(!showModuleMenu)}
+              onClick={() => setShowModuleMenu(true)}
               className="px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5
                        text-amber-400 hover:text-amber-300 border border-amber-400/30 hover:border-amber-400/50"
-              title="Add investigative module"
+              title="Add or remove case modules"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
               Modules
             </button>
-            {showModuleMenu && (
-              <div className="absolute top-full right-0 mt-1 w-72 bg-panel border border-accent-cyan/30 rounded-lg shadow-2xl z-50 overflow-hidden">
-                <div className="px-3 py-2 border-b border-accent-cyan/20">
-                  <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">Investigative Modules</p>
-                </div>
-                {ADDON_MODULES.map(mod => {
-                  const isEnabled = enabledModules.includes(mod.id);
-                  return (
-                    <div key={mod.id} className="flex items-center justify-between px-3 py-2.5 hover:bg-accent-cyan/5 transition-colors">
-                      <div className="flex items-center gap-2.5">
-                        <mod.IconComponent className="w-5 h-5 text-accent-cyan" />
-                        <div>
-                          <p className="text-sm font-medium text-text-primary">{mod.label}</p>
-                          <p className="text-xs text-text-muted">{mod.description}</p>
-                        </div>
-                      </div>
-                      {isEnabled ? (
-                        <button
-                          onClick={() => removeModule(mod.id)}
-                          className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                        >
-                          Remove
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => addModule(mod.id)}
-                          className="px-2 py-1 text-xs font-medium rounded bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors"
-                        >
-                          Add
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+          </div>
           </div>
         </div>
       </div>
+
+      {/* Manage Modules modal */}
+      {showModuleMenu && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowModuleMenu(false)}
+        >
+          <div
+            ref={moduleMenuRef}
+            className="w-[760px] max-w-[95vw] max-h-[85vh] overflow-y-auto bg-panel border border-accent-cyan/30 rounded-xl shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">Select Case Modules</h2>
+                <p className="text-sm text-text-muted mt-0.5">
+                  {isModular
+                    ? 'Choose which tabs to include in this case. The Overview tab is automatically included.'
+                    : 'Toggle optional investigative modules for this case.'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModuleMenu(false)}
+                className="text-text-muted hover:text-text-primary p-1"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Render checkboxes — modular cases show full catalog grouped by section,
+                legacy cases keep the original addons-only behavior. */}
+            {isModular ? (
+              <>
+                <div className="mt-5">
+                  <p className="text-xs font-semibold text-accent-cyan uppercase tracking-wider flex items-center gap-2 mb-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-cyan inline-block" />
+                    Case Management
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {SELECTABLE_MODULES.filter(m => m.section === 'management').map(mod => {
+                      const isEnabled = enabledModules.includes(mod.id);
+                      return (
+                        <label
+                          key={mod.id}
+                          className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors
+                            ${isEnabled
+                              ? 'border-accent-cyan/60 bg-accent-cyan/10'
+                              : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={() => (isEnabled ? removeModule(mod.id) : addModule(mod.id))}
+                            className="w-4 h-4 accent-accent-cyan"
+                          />
+                          <mod.IconComponent className="w-4 h-4 text-accent-cyan flex-shrink-0" />
+                          <span className="text-sm font-medium text-text-primary truncate">{mod.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-2 mb-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                    Investigative Tools
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {SELECTABLE_MODULES.filter(m => m.section === 'tools').map(mod => {
+                      const isEnabled = enabledModules.includes(mod.id);
+                      return (
+                        <label
+                          key={mod.id}
+                          className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors
+                            ${isEnabled
+                              ? 'border-emerald-400/60 bg-emerald-400/10'
+                              : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isEnabled}
+                            onChange={() => (isEnabled ? removeModule(mod.id) : addModule(mod.id))}
+                            className="w-4 h-4 mt-0.5 accent-emerald-400"
+                          />
+                          <mod.IconComponent className="w-4 h-4 mt-0.5 text-emerald-400 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-text-primary truncate">{mod.label}</p>
+                            <p className="text-[11px] text-text-muted leading-tight truncate">{mod.description}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setShowModuleMenu(false)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4 divide-y divide-white/5">
+                  {ADDON_MODULES.map(mod => {
+                    const isEnabled = enabledModules.includes(mod.id);
+                    return (
+                      <div key={mod.id} className="flex items-center justify-between py-3">
+                        <div className="flex items-center gap-2.5">
+                          <mod.IconComponent className="w-5 h-5 text-accent-cyan" />
+                          <div>
+                            <p className="text-sm font-medium text-text-primary">{mod.label}</p>
+                            <p className="text-xs text-text-muted">{mod.description}</p>
+                          </div>
+                        </div>
+                        {isEnabled ? (
+                          <button
+                            onClick={() => removeModule(mod.id)}
+                            className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => addModule(mod.id)}
+                            className="px-2 py-1 text-xs font-medium rounded bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors"
+                          >
+                            Add
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setShowModuleMenu(false)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="p-8">
@@ -2745,6 +2974,26 @@ export function CaseDetail() {
 
         {activeTab === 'rms' && caseData && (
           <RMSTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'metaWarrant' && caseData && (
+          <MetaWarrantTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'googleWarrant' && caseData && (
+          <GoogleWarrantTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'kikWarrant' && caseData && (
+          <KikWarrantTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'snapWarrant' && caseData && (
+          <SnapWarrantTab caseId={caseData.id} caseNumber={caseData.case_number} />
+        )}
+
+        {activeTab === 'discordWarrant' && caseData && (
+          <DiscordWarrantTab caseId={caseData.id} caseNumber={caseData.case_number} />
         )}
       </div>
     </div>

@@ -6,6 +6,8 @@ directories:
   buildResources: build
 files:
   - out
+asarUnpack:
+  - node_modules/single-file-cli/**/*
 win:
   target:
     - target: nsis

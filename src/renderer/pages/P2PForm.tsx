@@ -58,6 +58,12 @@ export function P2PForm() {
 
       console.log('Case created:', caseResult);
 
+      // Stamp modular-case defaults (Overview is implicit; user can manage later via Modules button)
+      if (caseResult?.id != null) {
+        localStorage.setItem(`caseModules_${caseResult.id}`, JSON.stringify(['suspect', 'warrants', 'report', 'evidence']));
+        localStorage.setItem(`caseModulesV2_${caseResult.id}`, '1');
+      }
+
       // Save P2P-specific data
       await window.electronAPI.saveP2PData({
         caseId: caseResult.id,

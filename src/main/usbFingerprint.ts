@@ -1,5 +1,7 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
+import * as path from 'path';
+import { getUserDataPath } from './database';
 
 export interface UsbFingerprint {
   volumeSerial: string;
@@ -128,10 +130,6 @@ export function verifyUsbFingerprint(registered: UsbFingerprint): boolean {
  */
 export function isPortableMode(): boolean {
   try {
-    // Import required modules at top of function
-    const path = require('path');
-    const { getUserDataPath } = require('./database');
-    
     // Method 1: Check for .portable marker file in AppData
     const portableMarkerPath = path.join(getUserDataPath(), '.portable');
     const hasPortableMarker = fs.existsSync(portableMarkerPath);
@@ -168,8 +166,6 @@ export function isPortableMode(): boolean {
     console.error('Error in isPortableMode:', error);
     // If can't determine, check for .portable marker as fallback
     try {
-      const path = require('path');
-      const { getUserDataPath } = require('./database');
       const portableMarkerPath = path.join(getUserDataPath(), '.portable');
       return fs.existsSync(portableMarkerPath);
     } catch {

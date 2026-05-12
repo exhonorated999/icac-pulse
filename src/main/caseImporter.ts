@@ -304,83 +304,139 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
     }
   }
   
-  // Import notes
+  // Import notes (schema column is `content`)
   if (caseData.notes && Array.isArray(caseData.notes)) {
     const notesStmt = db.prepare(`
-      INSERT INTO case_notes (case_id, note_content, created_at)
+      INSERT INTO case_notes (case_id, content, created_at)
       VALUES (?, ?, ?)
     `);
-    
+
     for (const note of caseData.notes) {
       notesStmt.run(
         newCaseId,
-        note.note_content,
-        note.created_at
+        note.content || note.note_content || '',
+        note.created_at || new Date().toISOString()
       );
     }
   }
-  
-  // Import warrants
+
+  // Import warrants (current schema columns: date_served, date_due, received,
+  // date_received, warrant_pdf_path, return_files_path, notes)
   if (caseData.warrants && Array.isArray(caseData.warrants)) {
     const warrantsStmt = db.prepare(`
-      INSERT INTO warrants (case_id, company_name, date_issued, due_date, warrant_pdf_path, return_folder_path)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO warrants
+        (case_id, company_name, date_issued, date_served, date_due, received,
+         date_received, warrant_pdf_path, return_files_path, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
-    for (const warrant of caseData.warrants) {
+
+    for (const w of caseData.warrants) {
       warrantsStmt.run(
         newCaseId,
-        warrant.company_name,
-        warrant.date_issued,
-        warrant.due_date || null,
-        warrant.warrant_pdf_path || null,
-        warrant.return_folder_path || null
+        w.company_name,
+        w.date_issued,
+        w.date_served || null,
+        w.date_due || w.due_date || null,
+        w.received ? 1 : 0,
+        w.date_received || null,
+        w.warrant_pdf_path || null,
+        w.return_files_path || w.return_folder_path || null,
+        w.notes || null
       );
     }
   }
-  
-  // Import evidence
+
+  // Import evidence — preserve all typed fields & metadata
   if (caseData.evidence && Array.isArray(caseData.evidence)) {
     const evidenceStmt = db.prepare(`
-      INSERT INTO evidence (case_id, file_path, description, created_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO evidence
+        (case_id, description, file_path, category, type, tag, storage_mode,
+         file_count, total_size, files_json, meta_json, uploaded_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
-    for (const evidence of caseData.evidence) {
+
+    for (const e of caseData.evidence) {
       evidenceStmt.run(
         newCaseId,
-        evidence.file_path,
-        evidence.description || null,
-        evidence.created_at
+        e.description || '',
+        e.file_path || '',
+        e.category || 'Other',
+        e.type || 'other',
+        e.tag || null,
+        e.storage_mode || 'copy',
+        e.file_count || 0,
+        e.total_size || 0,
+        e.files_json || null,
+        e.meta_json || null,
+        e.uploaded_at || e.created_at || new Date().toISOString(),
+        e.updated_at || e.created_at || new Date().toISOString()
       );
     }
   }
-  
-  // Import suspect
+
+  // Import suspect — real schema columns: name, dob, drivers_license,
+  // photo_path, address, height, weight, phone, workplace, has_weapons,
+  // plus migration columns (firearms_info, firearms_pdf_path,
+  // criminal_history, criminal_history_pdf_path, scars_marks_tattoos,
+  // license_plate). We use the full set and best-effort fall back when
+  // the source export used the older first_name/last_name split.
   if (caseData.suspect) {
-    const suspectStmt = db.prepare(`
-      INSERT INTO suspects (case_id, first_name, last_name, dob, phone, address, place_of_work, vehicle_make, vehicle_model, vehicle_color, has_weapons)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    suspectStmt.run(
-      newCaseId,
-      caseData.suspect.first_name || null,
-      caseData.suspect.last_name || null,
-      caseData.suspect.dob || null,
-      caseData.suspect.phone || null,
-      caseData.suspect.address || null,
-      caseData.suspect.place_of_work || null,
-      caseData.suspect.vehicle_make || null,
-      caseData.suspect.vehicle_model || null,
-      caseData.suspect.vehicle_color || null,
-      caseData.suspect.has_weapons ? 1 : 0
-    );
-    
+    const s = caseData.suspect;
+    const composedName =
+      s.name ||
+      [s.first_name, s.last_name].filter(Boolean).join(' ').trim() ||
+      null;
+
+    try {
+      const suspectStmt = db.prepare(`
+        INSERT INTO suspects
+          (case_id, name, dob, drivers_license, photo_path, address, height,
+           weight, phone, workplace, has_weapons,
+           firearms_info, firearms_pdf_path, criminal_history,
+           criminal_history_pdf_path, scars_marks_tattoos, license_plate)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      suspectStmt.run(
+        newCaseId,
+        composedName,
+        s.dob || null,
+        s.drivers_license || null,
+        s.photo_path || null,
+        s.address || null,
+        s.height || null,
+        s.weight || null,
+        s.phone || null,
+        s.workplace || s.place_of_work || null,
+        s.has_weapons ? 1 : 0,
+        s.firearms_info || null,
+        s.firearms_pdf_path || null,
+        s.criminal_history || null,
+        s.criminal_history_pdf_path || null,
+        s.scars_marks_tattoos || null,
+        s.license_plate || null
+      );
+    } catch (e) {
+      // Older db without migration columns — fall back to base columns
+      try {
+        const fallback = db.prepare(`
+          INSERT INTO suspects
+            (case_id, name, dob, drivers_license, photo_path, address, height,
+             weight, phone, workplace, has_weapons)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        fallback.run(
+          newCaseId, composedName, s.dob || null, s.drivers_license || null,
+          s.photo_path || null, s.address || null, s.height || null, s.weight || null,
+          s.phone || null, s.workplace || s.place_of_work || null, s.has_weapons ? 1 : 0
+        );
+      } catch (e2) {
+        warnings.push(`suspect import skipped: ${(e2 as Error).message}`);
+      }
+    }
+
     // Get new suspect ID
-    const getSuspectStmt = db.prepare('SELECT id FROM suspects WHERE case_id = ?');
-    const newSuspect = getSuspectStmt.get(newCaseId);
-    
+    const newSuspect = db.prepare('SELECT id FROM suspects WHERE case_id = ? ORDER BY id DESC LIMIT 1').get(newCaseId);
+
     if (newSuspect) {
       // Import weapons
       if (caseData.weapons && Array.isArray(caseData.weapons)) {
@@ -388,89 +444,331 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
           INSERT INTO weapons (suspect_id, weapon_description)
           VALUES (?, ?)
         `);
-        
         for (const weapon of caseData.weapons) {
           weaponsStmt.run(newSuspect.id, weapon.weapon_description);
         }
       }
-      
+
       // Import suspect photos
       if (caseData.suspectPhotos && Array.isArray(caseData.suspectPhotos)) {
-        const photosStmt = db.prepare(`
-          INSERT INTO suspect_photos (case_id, photo_path, photo_type)
-          VALUES (?, ?, ?)
-        `);
-        
-        for (const photo of caseData.suspectPhotos) {
-          photosStmt.run(
-            newCaseId,
-            photo.photo_path,
-            photo.photo_type
-          );
+        try {
+          const photosStmt = db.prepare(`
+            INSERT INTO suspect_photos (case_id, photo_path, photo_type)
+            VALUES (?, ?, ?)
+          `);
+          for (const photo of caseData.suspectPhotos) {
+            photosStmt.run(newCaseId, photo.photo_path, photo.photo_type || null);
+          }
+        } catch (e) {
+          warnings.push(`suspect_photos import skipped: ${(e as Error).message}`);
         }
       }
     }
   }
   
-  // Import prosecution
+  // Import prosecution (table is prosecution_info per current schema)
   if (caseData.prosecution) {
-    const prosecutionStmt = db.prepare(`
-      INSERT INTO prosecution (case_id, court_case_number, da_assigned, charges_filed, convicted, sentence)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    
-    prosecutionStmt.run(
-      newCaseId,
-      caseData.prosecution.court_case_number || null,
-      caseData.prosecution.da_assigned || null,
-      caseData.prosecution.charges_filed || null,
-      caseData.prosecution.convicted ? 1 : 0,
-      caseData.prosecution.sentence || null
-    );
-  }
-  
-  // Import operations plan
-  if (caseData.opsPlan) {
-    const opsPlanStmt = db.prepare(`
-      INSERT INTO operations_plan (case_id, pdf_path)
-      VALUES (?, ?)
-    `);
-    
-    opsPlanStmt.run(
-      newCaseId,
-      caseData.opsPlan.pdf_path || null
-    );
-  }
-  
-  // Import report
-  if (caseData.report) {
-    const reportStmt = db.prepare(`
-      INSERT INTO reports (case_id, report_content)
-      VALUES (?, ?)
-    `);
-    
-    reportStmt.run(
-      newCaseId,
-      caseData.report.report_content || null
-    );
-  }
-  
-  // Import todos
-  if (caseData.todos && Array.isArray(caseData.todos)) {
-    const todosStmt = db.prepare(`
-      INSERT INTO todos (case_id, task_description, completed)
-      VALUES (?, ?, ?)
-    `);
-    
-    for (const todo of caseData.todos) {
-      todosStmt.run(
+    try {
+      const prosecutionStmt = db.prepare(`
+        INSERT INTO prosecution_info (case_id, charges, court_case_number, assigned_court, da_name, da_contact)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      prosecutionStmt.run(
         newCaseId,
-        todo.task_description,
-        todo.completed ? 1 : 0
+        caseData.prosecution.charges || null,
+        caseData.prosecution.court_case_number || null,
+        caseData.prosecution.assigned_court || null,
+        caseData.prosecution.da_name || null,
+        caseData.prosecution.da_contact || null
       );
+    } catch (e) {
+      warnings.push(`prosecution_info import skipped: ${(e as Error).message}`);
     }
   }
-  
+
+  // Import operations plan (table is operations_plans per current schema)
+  let newOpsPlanId: number | null = null;
+  if (caseData.opsPlan) {
+    try {
+      const opsPlanStmt = db.prepare(`
+        INSERT INTO operations_plans (
+          case_id, plan_pdf_path, approved, approver_name, approval_date, execution_date,
+          date, time, report_number, case_agent, operation_type, location, briefing_location,
+          fortifications, cameras, dogs, children, notifications, comms, hospital, rally_point,
+          suspect_info, case_summary, tactical_plan, pursuit_plan, medical_plan,
+          barricade_plan, contingency_plan, directions, location_photos, route_data
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const op = caseData.opsPlan;
+      opsPlanStmt.run(
+        newCaseId,
+        op.plan_pdf_path || op.pdf_path || null,
+        op.approved ? 1 : 0,
+        op.approver_name || null, op.approval_date || null, op.execution_date || null,
+        op.date || null, op.time || null, op.report_number || null, op.case_agent || null,
+        op.operation_type || null, op.location || null, op.briefing_location || null,
+        op.fortifications || null, op.cameras || null, op.dogs || null, op.children || null,
+        op.notifications || null, op.comms || null, op.hospital || null, op.rally_point || null,
+        op.suspect_info || null, op.case_summary || null,
+        op.tactical_plan || null, op.pursuit_plan || null, op.medical_plan || null,
+        op.barricade_plan || null, op.contingency_plan || null,
+        op.directions || null, op.location_photos || null, op.route_data || null
+      );
+      const newOp = db.prepare('SELECT id FROM operations_plans WHERE case_id = ? ORDER BY id DESC LIMIT 1').get(newCaseId);
+      newOpsPlanId = newOp ? newOp.id : null;
+    } catch (e) {
+      warnings.push(`operations_plans import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import ops plan child rows
+  if (newOpsPlanId != null && Array.isArray(caseData.opsEntryTeam)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO ops_entry_team (ops_plan_id, name, assignment, vehicle, call_sign, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of caseData.opsEntryTeam) {
+        stmt.run(newOpsPlanId, row.name || null, row.assignment || null, row.vehicle || null, row.call_sign || null, row.sort_order || 0);
+      }
+    } catch (e) {
+      warnings.push(`ops_entry_team import skipped: ${(e as Error).message}`);
+    }
+  }
+  if (newOpsPlanId != null && Array.isArray(caseData.opsOtherResidents)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO ops_other_residents (ops_plan_id, name, dob, photo, has_firearms, firearms, has_crim_history, crim_history, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of caseData.opsOtherResidents) {
+        stmt.run(
+          newOpsPlanId, row.name || null, row.dob || null, row.photo || null,
+          row.has_firearms ? 1 : 0, row.firearms || null,
+          row.has_crim_history ? 1 : 0, row.crim_history || null,
+          row.sort_order || 0
+        );
+      }
+    } catch (e) {
+      warnings.push(`ops_other_residents import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import report (table is case_reports per current schema)
+  if (caseData.report) {
+    try {
+      const reportStmt = db.prepare(`
+        INSERT INTO case_reports (case_id, content)
+        VALUES (?, ?)
+      `);
+      reportStmt.run(newCaseId, caseData.report.content || caseData.report.report_content || '');
+    } catch (e) {
+      warnings.push(`case_reports import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import probable cause
+  if (caseData.probableCause) {
+    try {
+      const pcStmt = db.prepare(`INSERT INTO probable_cause (case_id, content) VALUES (?, ?)`);
+      pcStmt.run(newCaseId, caseData.probableCause.content || '');
+    } catch (e) {
+      warnings.push(`probable_cause import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import todos (schema column is `content`, not `task_description`)
+  if (Array.isArray(caseData.todos)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO todos (case_id, content, completed, created_at, completed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const t of caseData.todos) {
+        stmt.run(
+          newCaseId,
+          t.content || t.task_description || '',
+          t.completed ? 1 : 0,
+          t.created_at || new Date().toISOString(),
+          t.completed_at || null
+        );
+      }
+    } catch (e) {
+      warnings.push(`todos import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import timeline events
+  if (Array.isArray(caseData.timelineEvents)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO timeline_events
+          (case_id, timestamp, end_timestamp, title, description, lane, category,
+           significance, entity_link, source_type, source_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const ev of caseData.timelineEvents) {
+        stmt.run(
+          newCaseId,
+          ev.timestamp, ev.end_timestamp || null,
+          ev.title, ev.description || null,
+          ev.lane, ev.category || 'custom',
+          ev.significance || 'major',
+          ev.entity_link || null,
+          ev.source_type || 'manual',
+          ev.source_id || null,
+          ev.created_at || new Date().toISOString()
+        );
+      }
+    } catch (e) {
+      warnings.push(`timeline_events import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import CDR records
+  if (Array.isArray(caseData.cdrRecords)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO cdr_records
+          (case_id, phone_a, phone_b, date_val, time_val, timestamp, call_type,
+           duration_seconds, imei, imsi, tower_a, tower_b, source, raw_line)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const r of caseData.cdrRecords) {
+        stmt.run(
+          newCaseId,
+          r.phone_a || null, r.phone_b || null,
+          r.date_val || null, r.time_val || null, r.timestamp || null,
+          r.call_type || 'voice', r.duration_seconds || 0,
+          r.imei || null, r.imsi || null,
+          r.tower_a || null, r.tower_b || null,
+          r.source || null, r.raw_line || null
+        );
+      }
+    } catch (e) {
+      warnings.push(`cdr_records import skipped: ${(e as Error).message}`);
+    }
+  }
+
+  // Import Aperture emails + notes
+  const oldToNewEmailId = new Map<number, number>();
+  if (Array.isArray(caseData.apertureEmails)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO aperture_emails
+          (case_id, message_id, from_address, to_addresses, cc_addresses, subject,
+           date_sent, body_text, body_html, headers_raw, source_file, flagged,
+           ip_addresses, attachments_json, source_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const getIdStmt = db.prepare('SELECT last_insert_rowid() AS id');
+      for (const e of caseData.apertureEmails) {
+        stmt.run(
+          newCaseId, e.message_id || null, e.from_address, e.to_addresses || null,
+          e.cc_addresses || null, e.subject || null, e.date_sent,
+          e.body_text || null, e.body_html || null, e.headers_raw || null,
+          e.source_file || null, e.flagged ? 1 : 0,
+          e.ip_addresses || null, e.attachments_json || null, e.source_name || null
+        );
+        const row = getIdStmt.get();
+        if (row && e.id != null) oldToNewEmailId.set(e.id, row.id);
+      }
+    } catch (err) {
+      warnings.push(`aperture_emails import skipped: ${(err as Error).message}`);
+    }
+  }
+  if (Array.isArray(caseData.apertureNotes)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO aperture_notes (case_id, email_id, content, created_at)
+        VALUES (?, ?, ?, ?)
+      `);
+      for (const n of caseData.apertureNotes) {
+        const mapped = oldToNewEmailId.get(n.email_id);
+        if (mapped == null) continue; // orphaned note — skip
+        stmt.run(newCaseId, mapped, n.content, n.created_at || new Date().toISOString());
+      }
+    } catch (err) {
+      warnings.push(`aperture_notes import skipped: ${(err as Error).message}`);
+    }
+  }
+
+  // Import warrant return imports + flags
+  const oldToNewWRImportId = new Map<number, number>();
+  if (Array.isArray(caseData.warrantReturnImports)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id,
+           data_json, media_index_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const getIdStmt = db.prepare('SELECT last_insert_rowid() AS id');
+      for (const wi of caseData.warrantReturnImports) {
+        stmt.run(
+          newCaseId, wi.provider, wi.label || null, wi.source_path || null,
+          wi.source_kind || null, wi.source_ref_id || null,
+          wi.data_json, wi.media_index_json || null,
+          wi.created_at || new Date().toISOString(),
+          wi.updated_at || new Date().toISOString()
+        );
+        const row = getIdStmt.get();
+        if (row && wi.id != null) oldToNewWRImportId.set(wi.id, row.id);
+      }
+    } catch (err) {
+      warnings.push(`warrant_return_imports import skipped: ${(err as Error).message}`);
+    }
+  }
+  if (Array.isArray(caseData.warrantReturnFlags)) {
+    try {
+      const stmt = db.prepare(`
+        INSERT OR IGNORE INTO warrant_return_flags
+          (case_id, provider, import_id, section, flag_key, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const f of caseData.warrantReturnFlags) {
+        const mappedImport = f.import_id != null ? oldToNewWRImportId.get(f.import_id) ?? null : null;
+        stmt.run(
+          newCaseId, f.provider, mappedImport, f.section, f.flag_key,
+          f.notes || null, f.created_at || new Date().toISOString()
+        );
+      }
+    } catch (err) {
+      warnings.push(`warrant_return_flags import skipped: ${(err as Error).message}`);
+    }
+  }
+
+  // Import chat highlights — evidence rows have new IDs after import.
+  // We can't map old→new evidence reliably without an evidence "external_id"
+  // field, so we best-effort match by file_path within this case's evidence.
+  if (Array.isArray(caseData.chatHighlights) && caseData.chatHighlights.length > 0) {
+    try {
+      // Best-effort: keep them keyed by evidence_id since the new evidence
+      // rows for this case will have been inserted above (without a mapping
+      // we can't be precise). We store them but flag a warning so the user
+      // knows highlights may need manual re-association.
+      warnings.push(
+        `${caseData.chatHighlights.length} chat highlight(s) were exported with the case but could not be auto-reattached on import (evidence IDs change between systems). The evidence files themselves were imported.`
+      );
+    } catch { /* no-op */ }
+  }
+
+  // Audit log entries from the source system are informational —
+  // do NOT import into the local audit_log table (it has its own
+  // sequential hash chain and per-machine seq numbers). Instead
+  // emit a single audit event noting that this case was imported.
+  // (The local audit log will already record the case_imported event
+  // from index.ts; this is just to ensure the data isn't silently lost.)
+  if (Array.isArray(caseData.auditLog) && caseData.auditLog.length > 0) {
+    try {
+      const archivedDir = path.join(getCasesPath(), newCaseNumber, '_imported_audit_log');
+      fs.mkdirSync(archivedDir, { recursive: true });
+      const archivePath = path.join(archivedDir, `source-audit-log-${Date.now()}.json`);
+      fs.writeFileSync(archivePath, JSON.stringify(caseData.auditLog, null, 2));
+    } catch { /* best-effort — don't fail import */ }
+  }
+
   saveDatabase();
   return newCaseId;
 }

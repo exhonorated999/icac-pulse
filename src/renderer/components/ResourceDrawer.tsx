@@ -118,6 +118,8 @@ export function ResourceDrawer() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [enabledResources, setEnabledResources] = useState<Resource[]>([]);
   const [allResources, setAllResources] = useState<Resource[]>([...RESOURCES, ...loadByoaResources()]);
+  const [capturing, setCapturing] = useState<null | 'pdf' | 'html'>(null);
+  const [captureErr, setCaptureErr] = useState<string>('');
 
   const flockRef = useRef<HTMLDivElement>(null);
   const tloRef = useRef<HTMLDivElement>(null);
@@ -228,6 +230,8 @@ export function ResourceDrawer() {
     const tab = active.find(r => r.id === activeTab) ? activeTab! : active[0].id;
     setActiveTab(tab);
     setOpen(true);
+    // Notify ChatTray to close (tray mutex).
+    window.dispatchEvent(new CustomEvent('pulse:tray-open', { detail: { tray: 'resource' } }));
     // Position BV after animation
     setTimeout(() => {
       const res = active.find(r => r.id === tab);
@@ -253,6 +257,15 @@ export function ResourceDrawer() {
   const handleToggle = useCallback(() => {
     if (open) handleClose(); else handleOpen();
   }, [open, handleClose, handleOpen]);
+
+  // Tray mutex: close when chat tray opens.
+  useEffect(() => {
+    const onOther = (ev: any) => {
+      if (ev?.detail?.tray && ev.detail.tray !== 'resource' && open) handleClose();
+    };
+    window.addEventListener('pulse:tray-open', onOther);
+    return () => window.removeEventListener('pulse:tray-open', onOther);
+  }, [open, handleClose]);
 
   /* ── Tab switch ────────────────────────────────────────── */
   const switchTab = useCallback((resId: string) => {
@@ -303,6 +316,73 @@ export function ResourceDrawer() {
   useEffect(() => {
     return () => hideAllBVs();
   }, [hideAllBVs]);
+
+  /* ── Temporarily hide BVs while a modal needs Z-priority ─ */
+  // BrowserViews are native layers that always paint on top of the DOM, so
+  // any global modal (e.g. DownloadCaptureModal routing form) would be
+  // obscured. The modal broadcasts `pulse:bv-suspend` when it opens and
+  // `pulse:bv-resume` when it closes — we drop and restore the active BV.
+  useEffect(() => {
+    let suspended = false;
+    const suspend = () => {
+      if (!open || !activeTab) return;
+      suspended = true;
+      hideAllBVs();
+    };
+    const resume = () => {
+      if (!suspended) return;
+      suspended = false;
+      if (open && activeTab) {
+        const res = allResources.find(r => r.id === activeTab);
+        if (res?.isBV) setTimeout(() => positionBV(activeTab), 30);
+      }
+    };
+    window.addEventListener('pulse:bv-suspend', suspend);
+    window.addEventListener('pulse:bv-resume', resume);
+    return () => {
+      window.removeEventListener('pulse:bv-suspend', suspend);
+      window.removeEventListener('pulse:bv-resume', resume);
+    };
+  }, [open, activeTab, hideAllBVs, positionBV, allResources]);
+
+  /* ── Capture current resource as PDF / SingleFile HTML ─── */
+  const handleCapture = useCallback(async (kind: 'pdf' | 'html') => {
+    console.log('[ResourceDrawer] capture click', { kind, activeTab });
+    if (!activeTab) {
+      setCaptureErr('No active resource tab — open a resource first.');
+      return;
+    }
+    setCaptureErr('');
+    setCapturing(kind);
+    try {
+      const api: any = (window as any).electronAPI;
+      const fn = kind === 'pdf' ? api?.resourceCapturePdf : api?.resourceCaptureHtml;
+      if (!fn) {
+        setCaptureErr('Capture API unavailable — restart the app.');
+        return;
+      }
+      console.log('[ResourceDrawer] invoking capture IPC for', activeTab);
+      const result = await fn(activeTab);
+      console.log('[ResourceDrawer] capture result', result);
+      if (!result?.success) {
+        setCaptureErr(result?.error || `Failed to capture ${kind.toUpperCase()}`);
+      }
+      // On success the DownloadCaptureModal will pop up via the
+      // `resource-download-complete` event — nothing more to do here.
+    } catch (e: any) {
+      console.error('[ResourceDrawer] capture error', e);
+      setCaptureErr(e?.message || String(e));
+    } finally {
+      setCapturing(null);
+    }
+  }, [activeTab]);
+
+  /* ── Auto-clear capture error after a few seconds ─────── */
+  useEffect(() => {
+    if (!captureErr) return;
+    const t = setTimeout(() => setCaptureErr(''), 5000);
+    return () => clearTimeout(t);
+  }, [captureErr]);
 
   /* ── Don't render if nothing is enabled ────────────────── */
   if (!enabledResources.length) return null;
@@ -372,6 +452,40 @@ export function ResourceDrawer() {
             </div>
             <div className="flex items-center gap-1">
               <button
+                onClick={() => handleCapture('pdf')}
+                disabled={!activeTab || capturing !== null}
+                className="p-2 rounded-lg hover:bg-white/5 text-gray-500 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Save current page as PDF"
+              >
+                {capturing === 'pdf' ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" strokeWidth="2" strokeOpacity="0.25" />
+                    <path strokeLinecap="round" strokeWidth="2" d="M22 12a10 10 0 00-10-10" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={() => handleCapture('html')}
+                disabled={!activeTab || capturing !== null}
+                className="p-2 rounded-lg hover:bg-white/5 text-gray-500 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Save current page as SingleFile HTML (preserves all assets)"
+              >
+                {capturing === 'html' ? (
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" strokeWidth="2" strokeOpacity="0.25" />
+                    <path strokeLinecap="round" strokeWidth="2" d="M22 12a10 10 0 00-10-10" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                )}
+              </button>
+              <button
                 onClick={() => setExpanded(e => !e)}
                 className="p-2 rounded-lg hover:bg-white/5 text-gray-500 hover:text-white transition"
                 title={expanded ? 'Collapse' : 'Expand'}
@@ -412,6 +526,13 @@ export function ResourceDrawer() {
               </button>
             ))}
           </div>
+
+          {/* Capture error banner */}
+          {captureErr && (
+            <div className="px-4 py-2 flex-shrink-0 text-xs text-rose-300 bg-rose-500/10 border-b border-rose-500/30">
+              <span className="font-semibold">Capture failed:</span> {captureErr}
+            </div>
+          )}
 
           {/* Content panels */}
           <div className="flex-1 min-h-0 relative">

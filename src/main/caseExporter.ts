@@ -118,97 +118,131 @@ function generateChecksum(filePath: string): string {
 }
 
 /**
- * Gather all database records for a case
+ * Best-effort row fetch — returns undefined/[] if the table doesn't exist
+ * or the query fails. Used to keep the export resilient across schema
+ * versions when older databases may be missing newer migration tables.
+ */
+function safeGet(db: Database, sql: string, ...params: any[]): any {
+  try {
+    return db.prepare(sql).get(...params);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeAll(db: Database, sql: string, ...params: any[]): any[] {
+  try {
+    return db.prepare(sql).all(...params);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Gather all database records for a case.
+ *
+ * Pulls every case-scoped table the application knows about so that an
+ * exported .pulse file is a true complete snapshot. Tables without a
+ * direct case_id are joined through their parent (ops plan children,
+ * chat_highlights through evidence). audit_log is filtered by
+ * JSON event_data substring since it has no case_id column.
  */
 function gatherCaseData(db: Database, caseId: number): any {
   // Main case record
   const caseStmt = db.prepare('SELECT * FROM cases WHERE id = ?');
   const caseRecord = caseStmt.get(caseId);
-  
+
   if (!caseRecord) {
     throw new Error('Case not found');
   }
-  
+
   // Get case type specific data
   let caseTypeData: any = null;
-  
+
   if (caseRecord.case_type === 'cybertip') {
-    const ctStmt = db.prepare('SELECT * FROM cybertip_data WHERE case_id = ?');
-    caseTypeData = ctStmt.get(caseId);
-    
-    // Get identifiers
-    const identStmt = db.prepare('SELECT * FROM cybertip_identifiers WHERE case_id = ?');
-    caseTypeData.identifiers = identStmt.all(caseId);
-    
-    // Get files
-    const filesStmt = db.prepare('SELECT * FROM cybertip_files WHERE case_id = ?');
-    caseTypeData.files = filesStmt.all(caseId);
+    caseTypeData = safeGet(db, 'SELECT * FROM cybertip_data WHERE case_id = ?', caseId) || {};
+    caseTypeData.identifiers = safeAll(db, 'SELECT * FROM cybertip_identifiers WHERE case_id = ?', caseId);
+    caseTypeData.files = safeAll(db, 'SELECT * FROM cybertip_files WHERE case_id = ?', caseId);
   } else if (caseRecord.case_type === 'p2p') {
-    const p2pStmt = db.prepare('SELECT * FROM p2p_data WHERE case_id = ?');
-    caseTypeData = p2pStmt.get(caseId);
+    caseTypeData = safeGet(db, 'SELECT * FROM p2p_data WHERE case_id = ?', caseId) || {};
   } else if (caseRecord.case_type === 'chat') {
-    const chatStmt = db.prepare('SELECT * FROM chat_data WHERE case_id = ?');
-    caseTypeData = chatStmt.get(caseId);
-    
-    // Get identifiers
-    const identStmt = db.prepare('SELECT * FROM chat_identifiers WHERE case_id = ?');
-    caseTypeData.identifiers = identStmt.all(caseId);
+    caseTypeData = safeGet(db, 'SELECT * FROM chat_data WHERE case_id = ?', caseId) || {};
+    caseTypeData.identifiers = safeAll(db, 'SELECT * FROM chat_identifiers WHERE case_id = ?', caseId);
   } else if (caseRecord.case_type === 'other') {
-    const otherStmt = db.prepare('SELECT * FROM other_data WHERE case_id = ?');
-    caseTypeData = otherStmt.get(caseId);
-    
-    // Get identifiers
-    const identStmt = db.prepare('SELECT * FROM other_identifiers WHERE case_id = ?');
-    caseTypeData.identifiers = identStmt.all(caseId);
+    caseTypeData = safeGet(db, 'SELECT * FROM other_data WHERE case_id = ?', caseId) || {};
+    caseTypeData.identifiers = safeAll(db, 'SELECT * FROM other_identifiers WHERE case_id = ?', caseId);
   }
-  
-  // Get notes
-  const notesStmt = db.prepare('SELECT * FROM case_notes WHERE case_id = ? ORDER BY created_at ASC');
-  const notes = notesStmt.all(caseId);
-  
-  // Get warrants
-  const warrantsStmt = db.prepare('SELECT * FROM warrants WHERE case_id = ?');
-  const warrants = warrantsStmt.all(caseId);
-  
-  // Get evidence
-  const evidenceStmt = db.prepare('SELECT * FROM evidence WHERE case_id = ?');
-  const evidence = evidenceStmt.all(caseId);
-  
-  // Get suspect
-  const suspectStmt = db.prepare('SELECT * FROM suspects WHERE case_id = ?');
-  const suspect = suspectStmt.get(caseId);
-  
+
+  // Core case-scoped tables
+  const notes = safeAll(db, 'SELECT * FROM case_notes WHERE case_id = ? ORDER BY created_at ASC', caseId);
+  const warrants = safeAll(db, 'SELECT * FROM warrants WHERE case_id = ?', caseId);
+  const evidence = safeAll(db, 'SELECT * FROM evidence WHERE case_id = ?', caseId);
+  const suspect = safeGet(db, 'SELECT * FROM suspects WHERE case_id = ?', caseId);
+
   let weapons: any[] = [];
   let suspectPhotos: any[] = [];
-  
   if (suspect) {
-    const weaponsStmt = db.prepare('SELECT * FROM weapons WHERE suspect_id = ?');
-    weapons = weaponsStmt.all(suspect.id);
-    
-    const photosStmt = db.prepare('SELECT * FROM suspect_photos WHERE case_id = ?');
-    suspectPhotos = photosStmt.all(caseId);
+    weapons = safeAll(db, 'SELECT * FROM weapons WHERE suspect_id = ?', suspect.id);
+    suspectPhotos = safeAll(db, 'SELECT * FROM suspect_photos WHERE case_id = ?', caseId);
   }
-  
-  // Get prosecution
-  const prosecutionStmt = db.prepare('SELECT * FROM prosecution WHERE case_id = ?');
-  const prosecution = prosecutionStmt.get(caseId);
-  
-  // Get operations plan
-  const opsPlanStmt = db.prepare('SELECT * FROM operations_plan WHERE case_id = ?');
-  const opsPlan = opsPlanStmt.get(caseId);
-  
-  // Get report
-  const reportStmt = db.prepare('SELECT * FROM reports WHERE case_id = ?');
-  const report = reportStmt.get(caseId);
-  
-  // Get todos
-  const todosStmt = db.prepare('SELECT * FROM todos WHERE case_id = ?');
-  const todos = todosStmt.all(caseId);
-  
+
+  // Prosecution / ops plan / report (correct table names from schema)
+  const prosecution =
+    safeGet(db, 'SELECT * FROM prosecution_info WHERE case_id = ?', caseId) ||
+    safeGet(db, 'SELECT * FROM prosecution WHERE case_id = ?', caseId);
+
+  const opsPlan =
+    safeGet(db, 'SELECT * FROM operations_plans WHERE case_id = ?', caseId) ||
+    safeGet(db, 'SELECT * FROM operations_plan WHERE case_id = ?', caseId);
+
+  // Ops plan child rows (joined through ops_plan_id)
+  let opsEntryTeam: any[] = [];
+  let opsOtherResidents: any[] = [];
+  if (opsPlan && opsPlan.id != null) {
+    opsEntryTeam = safeAll(db, 'SELECT * FROM ops_entry_team WHERE ops_plan_id = ? ORDER BY sort_order ASC', opsPlan.id);
+    opsOtherResidents = safeAll(db, 'SELECT * FROM ops_other_residents WHERE ops_plan_id = ? ORDER BY sort_order ASC', opsPlan.id);
+  }
+
+  const report =
+    safeGet(db, 'SELECT * FROM case_reports WHERE case_id = ?', caseId) ||
+    safeGet(db, 'SELECT * FROM reports WHERE case_id = ?', caseId);
+
+  const probableCause = safeGet(db, 'SELECT * FROM probable_cause WHERE case_id = ?', caseId);
+  const todos = safeAll(db, 'SELECT * FROM todos WHERE case_id = ?', caseId);
+
+  // Newer case-scoped tables (migrations 14-21)
+  const timelineEvents = safeAll(db, 'SELECT * FROM timeline_events WHERE case_id = ?', caseId);
+  const cdrRecords = safeAll(db, 'SELECT * FROM cdr_records WHERE case_id = ?', caseId);
+  const apertureEmails = safeAll(db, 'SELECT * FROM aperture_emails WHERE case_id = ?', caseId);
+  const apertureNotes = safeAll(db, 'SELECT * FROM aperture_notes WHERE case_id = ?', caseId);
+  const warrantReturnImports = safeAll(db, 'SELECT * FROM warrant_return_imports WHERE case_id = ?', caseId);
+  const warrantReturnFlags = safeAll(db, 'SELECT * FROM warrant_return_flags WHERE case_id = ?', caseId);
+
+  // chat_highlights has no case_id — join through evidence.id
+  const chatHighlights = safeAll(
+    db,
+    `SELECT ch.* FROM chat_highlights ch
+     INNER JOIN evidence ev ON ev.id = ch.evidence_id
+     WHERE ev.case_id = ?`,
+    caseId
+  );
+
+  // audit_log has no case_id — filter by JSON event_data substring.
+  // Matches both "case_id":<id> and "case_number":"<number>" so any audit
+  // entry that references this case ships with the export.
+  const auditLog = safeAll(
+    db,
+    `SELECT * FROM audit_log
+     WHERE event_data LIKE ? OR event_data LIKE ?
+     ORDER BY seq ASC`,
+    `%"case_id":${caseId}%`,
+    `%"case_number":"${caseRecord.case_number}"%`
+  );
+
   // Get user info for officer name
   const userStmt = db.prepare('SELECT username FROM users WHERE id = ?');
   const user = userStmt.get(caseRecord.user_id);
-  
+
   return {
     case: caseRecord,
     caseTypeData,
@@ -220,8 +254,19 @@ function gatherCaseData(db: Database, caseId: number): any {
     suspectPhotos,
     prosecution,
     opsPlan,
+    opsEntryTeam,
+    opsOtherResidents,
     report,
+    probableCause,
     todos,
+    timelineEvents,
+    cdrRecords,
+    apertureEmails,
+    apertureNotes,
+    warrantReturnImports,
+    warrantReturnFlags,
+    chatHighlights,
+    auditLog,
     exportedBy: user?.username || 'Unknown'
   };
 }
@@ -308,7 +353,10 @@ export async function exportCompleteCase(options: ExportOptions): Promise<Export
     // Create manifest
     const manifest = {
       export_metadata: {
-        pulse_version: '1.0.0',
+        pulse_version: '1.1.0', // 1.1.0 adds: timeline, cdr, aperture, warrant returns,
+                                //              chat highlights, audit log, probable cause,
+                                //              ops entry team / other residents
+        manifest_schema: 2,
         export_date: new Date().toISOString(),
         exporting_officer: caseData.exportedBy,
         case_number: caseNumber

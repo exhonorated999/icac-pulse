@@ -1,0 +1,226 @@
+/* ===========================================================================
+   Evidence Module (Viper-style port)
+   Two-pane layout: left = list+form, right = viewer.
+   Uses ICAC theme tokens (accent-cyan, panel, bg, etc.) via Tailwind classes;
+   this file adds only what's awkward to express in Tailwind utilities.
+   =========================================================================== */
+
+.evd-root {
+  display: flex;
+  height: 100%;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.evd-left {
+  width: 36%;
+  min-width: 360px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.evd-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* List ----------------------------------------------------------------- */
+
+.evd-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.evd-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.evd-card:hover { border-color: rgba(34, 211, 238, 0.5); background: rgba(34, 211, 238, 0.05); }
+.evd-card.selected { border-color: rgba(34, 211, 238, 0.7); background: rgba(34, 211, 238, 0.08); }
+
+.evd-card-row { display: flex; align-items: center; gap: 10px; }
+.evd-icon-wrap {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: rgba(34, 211, 238, 0.10);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.evd-card-body { flex: 1; min-width: 0; }
+.evd-card-title { font-size: 13px; font-weight: 600; color: #E5E7EB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evd-card-sub   { font-size: 11px; color: #9CA3AF; margin-top: 1px; text-transform: capitalize; }
+.evd-card-actions { display: flex; gap: 2px; }
+.evd-icon-btn {
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: #9CA3AF;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+}
+.evd-icon-btn:hover { color: #22D3EE; background: rgba(34, 211, 238, 0.10); }
+.evd-icon-btn.danger:hover { color: #F87171; background: rgba(248, 113, 113, 0.10); }
+
+.evd-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: #9CA3AF; }
+.evd-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 500; }
+.evd-chip-ref { background: rgba(234, 179, 8, 0.12); color: #FACC15; border: 1px solid rgba(234, 179, 8, 0.4); }
+.evd-chip-flag { background: rgba(217, 119, 6, 0.15); color: #FBBF24; }
+
+/* Form ---------------------------------------------------------------- */
+
+.evd-form {
+  background: rgba(34, 211, 238, 0.04);
+  border: 1px solid rgba(34, 211, 238, 0.30);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.evd-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.evd-label { display: block; font-size: 12px; font-weight: 500; color: #D1D5DB; margin-bottom: 6px; }
+.evd-input, .evd-select, .evd-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #F3F4F6;
+  font-size: 13px;
+  outline: none;
+}
+.evd-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2322D3EE' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+.evd-select option {
+  background-color: #111827;
+  color: #F3F4F6;
+  padding: 6px 8px;
+}
+.evd-input:focus, .evd-select:focus, .evd-textarea:focus { border-color: #22D3EE; }
+.evd-textarea { resize: vertical; min-height: 70px; }
+
+.evd-uploader {
+  width: 100%;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #9CA3AF;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.evd-uploader:hover { border-color: #22D3EE; color: #22D3EE; }
+
+.evd-files-info {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.30);
+  border-radius: 8px;
+}
+.evd-files-info-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.evd-files-list { max-height: 130px; overflow-y: auto; font-size: 11px; color: #9CA3AF; }
+.evd-files-list-item { display: flex; justify-content: space-between; padding: 2px 0; }
+
+.evd-storage-block { margin-top: 14px; }
+.evd-storage-opt {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.evd-storage-opt.selected.copy { border-color: rgba(34, 211, 238, 0.50); background: rgba(34, 211, 238, 0.05); }
+.evd-storage-opt.selected.reference { border-color: rgba(250, 204, 21, 0.50); background: rgba(250, 204, 21, 0.05); }
+.evd-storage-opt-title { font-size: 13px; font-weight: 500; color: #E5E7EB; }
+.evd-storage-opt-title.copy { color: #22D3EE; }
+.evd-storage-opt-desc { font-size: 11px; color: #9CA3AF; margin-top: 2px; }
+
+.evd-ref-warning {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(250, 204, 21, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.30);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #FDE68A;
+}
+
+.evd-form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 10px; }
+.evd-btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: background 120ms ease; }
+.evd-btn-cancel { background: transparent; color: #D1D5DB; border-color: rgba(255, 255, 255, 0.1); }
+.evd-btn-cancel:hover { background: rgba(255, 255, 255, 0.05); }
+.evd-btn-save { background: rgba(34, 211, 238, 0.20); color: #22D3EE; border-color: rgba(34, 211, 238, 0.40); }
+.evd-btn-save:hover { background: rgba(34, 211, 238, 0.30); }
+.evd-btn-add { background: rgba(34, 211, 238, 0.20); color: #22D3EE; border-color: rgba(34, 211, 238, 0.40); padding: 7px 14px; font-size: 13px; }
+.evd-btn-add:hover { background: rgba(34, 211, 238, 0.30); }
+
+/* Viewer (right pane) -------------------------------------------------- */
+
+.evd-viewer-head { padding: 14px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: rgba(0, 0, 0, 0.2); }
+.evd-viewer-title { font-size: 16px; font-weight: 600; color: #22D3EE; }
+.evd-viewer-sub { font-size: 12px; color: #9CA3AF; margin-top: 2px; }
+.evd-viewer-body { flex: 1; overflow: auto; padding: 16px; }
+.evd-viewer-empty { height: 100%; display: flex; align-items: center; justify-content: center; color: #6B7280; text-align: center; }
+
+.evd-files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.evd-file-tile {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+.evd-file-icon { font-size: 22px; flex-shrink: 0; }
+.evd-file-info { flex: 1; min-width: 0; }
+.evd-file-name { font-size: 12px; font-weight: 500; color: #E5E7EB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evd-file-meta { font-size: 10px; color: #9CA3AF; margin-top: 2px; }
+.evd-file-actions { display: flex; gap: 4px; }
+
+.evd-preview-img { max-width: 100%; max-height: 600px; border-radius: 8px; display: block; margin: 0 auto; }
+.evd-preview-video { max-width: 100%; max-height: 600px; border-radius: 8px; display: block; margin: 0 auto; }
+.evd-preview-iframe { width: 100%; height: calc(100vh - 280px); border: 0; background: white; border-radius: 8px; }
+
+/* Datapilot detail card */
+.evd-dp-card {
+  background: rgba(34, 211, 238, 0.04);
+  border: 1px solid rgba(34, 211, 238, 0.20);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.evd-dp-title { font-size: 14px; font-weight: 600; color: #22D3EE; margin-bottom: 10px; }
+.evd-dp-row { display: flex; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.evd-dp-row:last-child { border-bottom: 0; }
+.evd-dp-key { width: 130px; font-size: 12px; color: #9CA3AF; }
+.evd-dp-val { flex: 1; font-size: 12px; color: #E5E7EB; }
+.evd-dp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+.evd-dp-stat-tile { padding: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 8px; text-align: center; }
+.evd-dp-stat-num { font-size: 18px; font-weight: 700; color: #22D3EE; }
+.evd-dp-stat-label { font-size: 10px; color: #9CA3AF; margin-top: 2px; text-transform: uppercase; }

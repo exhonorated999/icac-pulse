@@ -355,6 +355,21 @@ function createTables(): void {
       FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seq INTEGER UNIQUE NOT NULL,                             -- monotonic sequence number
+      event_type TEXT NOT NULL,                                -- app_launch | case_opened | case_created | license_activated | registration | unlock | evidence_created | warrant_created | update_check | update_downloaded | etc.
+      event_data TEXT,                                         -- JSON payload (key=value pairs)
+      prev_hash TEXT,                                          -- SHA-256 of previous entry (NULL for first)
+      hash TEXT NOT NULL,                                      -- SHA-256(prev_hash + seq + event_type + event_data + timestamp)
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,            -- UTC
+      user TEXT,                                               -- username
+      host TEXT,                                               -- machine hostname
+      app_version TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_seq ON audit_log(seq);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+
     CREATE TABLE IF NOT EXISTS todos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       case_id INTEGER,
@@ -378,8 +393,16 @@ function createTables(): void {
       case_id INTEGER NOT NULL,
       description TEXT NOT NULL,
       file_path TEXT NOT NULL,
-      category TEXT NOT NULL DEFAULT 'Other',
+      category TEXT NOT NULL DEFAULT 'Other',                  -- legacy display label
+      type TEXT DEFAULT 'other',                               -- digital | document | photo | video | audio | physical | forensic | autopsy | toxicology | phone | cellebrite | datapilot | meta_warrant | other
+      tag TEXT,                                                -- e.g. 'EVID-001'
+      storage_mode TEXT DEFAULT 'copy',                        -- 'copy' | 'reference'
+      file_count INTEGER DEFAULT 0,
+      total_size INTEGER DEFAULT 0,
+      files_json TEXT,                                         -- JSON array: [{name, relPath, size, mimeType}]
+      meta_json TEXT,                                          -- type-specific (datapilot/cellebrite/meta_warrant)
       uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
     );
 
@@ -481,9 +504,172 @@ function createTables(): void {
       FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
     );
 
+    -- Warrant return imports (Meta, Google, KIK, Discord, Snapchat — ported from Project VIPER)
+    -- "provider" identifies the platform; "data_json" stores the parsed structured records.
+    CREATE TABLE IF NOT EXISTS warrant_return_imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      case_id INTEGER NOT NULL,
+      provider TEXT NOT NULL,           -- 'meta' | 'google' | 'kik' | 'discord' | 'snapchat'
+      label TEXT,                       -- short user-facing label (e.g. account id, file name)
+      source_path TEXT,                 -- original ZIP path on disk (warrants.return_files_path or evidence.file_path)
+      source_kind TEXT,                 -- 'warrant' | 'evidence' | 'picker'
+      source_ref_id INTEGER,            -- FK-ish: warrants.id or evidence.id (nullable)
+      data_json TEXT NOT NULL,          -- full parsed payload (JSON)
+      media_index_json TEXT,            -- {filename: {size,mimeType,originalPath}} (no base64 — kept in zip)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+    );
+
+    -- Generic warrant-return flag store (shared by all warrant parsers).
+    -- flag_key is a stable composite key identifying the specific record
+    -- inside the parsed return (e.g. metaMessage:<thread>:<sent>:<author>).
+    CREATE TABLE IF NOT EXISTS warrant_return_flags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      case_id INTEGER NOT NULL,
+      provider TEXT NOT NULL,
+      import_id INTEGER,                -- FK warrant_return_imports.id (nullable for cross-import flags)
+      section TEXT NOT NULL,            -- 'messages' | 'photos' | 'wallposts' | 'statusUpdates' | 'shares' | 'ipAddresses' | etc.
+      flag_key TEXT NOT NULL,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+      UNIQUE(case_id, provider, flag_key)
+    );
+
+    -- ====== UC Chat Operations (undercover) ======
+    -- Personas: an officer's UC identity (sock-puppet). One persona may run
+    -- chats across multiple platforms; sessions are isolated by persona_id.
+    CREATE TABLE IF NOT EXISTS uc_personas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      display_name TEXT NOT NULL,
+      real_age INTEGER,
+      displayed_age INTEGER,
+      gender TEXT,
+      hometown TEXT,
+      bio TEXT,
+      backstory TEXT,
+      avatar_path TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      archived_at DATETIME
+    );
+
+    -- A single UC conversation with one suspect on one platform.
+    -- Chats are operator-scoped, NOT case-scoped. Optional primary_case_id
+    -- pre-selects routing for 1-button evidence saves. Additional cases can
+    -- be linked via uc_chat_case_links.
+    CREATE TABLE IF NOT EXISTS uc_chats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      persona_id INTEGER NOT NULL,
+      platform TEXT NOT NULL,                -- 'discord' | 'telegram' | 'instagram' | 'whatsapp' | 'snapchat' | 'messenger' | 'meetme' | 'sniffies' | 'custom'
+      platform_url TEXT,                     -- entry URL loaded into the BrowserView
+      suspect_handle TEXT,                   -- e.g. @predator123
+      suspect_display_name TEXT,
+      status TEXT NOT NULL DEFAULT 'active', -- 'active' | 'archived'
+      primary_case_id INTEGER,
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      last_activity_at DATETIME,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      archived_at DATETIME,
+      FOREIGN KEY (persona_id) REFERENCES uc_personas(id),
+      FOREIGN KEY (primary_case_id) REFERENCES cases(id) ON DELETE SET NULL
+    );
+
+    -- Secondary case bindings for a chat (a chat may produce evidence for
+    -- multiple cases). Primary binding lives on uc_chats.primary_case_id.
+    CREATE TABLE IF NOT EXISTS uc_chat_case_links (
+      chat_id INTEGER NOT NULL,
+      case_id INTEGER NOT NULL,
+      role TEXT NOT NULL DEFAULT 'secondary', -- 'primary' | 'secondary'
+      linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (chat_id, case_id),
+      FOREIGN KEY (chat_id) REFERENCES uc_chats(id) ON DELETE CASCADE,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+    );
+
+    -- Time-ordered log of everything that happens inside a UC chat. The DOM
+    -- scraper (v2) writes incoming/outgoing rows; v1 only writes capture /
+    -- alert / panic / link / note rows.
+    CREATE TABLE IF NOT EXISTS uc_chat_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id INTEGER NOT NULL,
+      ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+      kind TEXT NOT NULL,            -- 'incoming' | 'outgoing' | 'capture' | 'alert' | 'panic' | 'link' | 'note'
+      payload_json TEXT,
+      FOREIGN KEY (chat_id) REFERENCES uc_chats(id) ON DELETE CASCADE
+    );
+
+    -- Append-only chain-of-custody log. Every evidence file write (from any
+    -- source — UC capture, resource capture, manual upload) writes a row
+    -- here with a SHA-256 hash. Used for court-defensible audit + integrity
+    -- verification.
+    CREATE TABLE IF NOT EXISTS evidence_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      evidence_id INTEGER,           -- FK evidence.id when known
+      case_id INTEGER,
+      chat_id INTEGER,               -- FK uc_chats.id when from a UC chat
+      action TEXT NOT NULL,          -- 'create' | 'export' | 'hash' | 'verify' | 'route'
+      sha256 TEXT,
+      file_path TEXT,
+      size_bytes INTEGER,
+      operator_user_id INTEGER,
+      ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+      meta_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS uc_persona_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      persona_id INTEGER NOT NULL,
+      file_path TEXT NOT NULL,            -- relative to <userData>/uc_photos
+      original_filename TEXT,
+      caption TEXT,
+      mime_type TEXT,
+      width INTEGER,
+      height INTEGER,
+      sha256 TEXT,
+      size_bytes INTEGER,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,  -- UTC
+      archived_at DATETIME,
+      FOREIGN KEY (persona_id) REFERENCES uc_personas(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS uc_photo_uses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      photo_id INTEGER NOT NULL,
+      chat_id INTEGER NOT NULL,
+      ts DATETIME DEFAULT CURRENT_TIMESTAMP,  -- UTC
+      action TEXT NOT NULL DEFAULT 'copy_to_clipboard',
+      notes TEXT,
+      FOREIGN KEY (photo_id) REFERENCES uc_persona_photos(id),
+      FOREIGN KEY (chat_id) REFERENCES uc_chats(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_uc_chats_persona_id ON uc_chats(persona_id);
+    CREATE INDEX IF NOT EXISTS idx_uc_chats_status ON uc_chats(status);
+    CREATE INDEX IF NOT EXISTS idx_uc_chats_last_activity ON uc_chats(last_activity_at);
+    CREATE INDEX IF NOT EXISTS idx_uc_chat_case_links_case_id ON uc_chat_case_links(case_id);
+    CREATE INDEX IF NOT EXISTS idx_uc_chat_events_chat_id ON uc_chat_events(chat_id);
+    CREATE INDEX IF NOT EXISTS idx_uc_chat_events_ts ON uc_chat_events(ts);
+    CREATE INDEX IF NOT EXISTS idx_uc_persona_photos_persona_id ON uc_persona_photos(persona_id);
+    CREATE INDEX IF NOT EXISTS idx_uc_photo_uses_photo_id ON uc_photo_uses(photo_id);
+    CREATE INDEX IF NOT EXISTS idx_uc_photo_uses_chat_id ON uc_photo_uses(chat_id);
+    CREATE INDEX IF NOT EXISTS idx_evidence_log_case_id ON evidence_log(case_id);
+    CREATE INDEX IF NOT EXISTS idx_evidence_log_chat_id ON evidence_log(chat_id);
+    CREATE INDEX IF NOT EXISTS idx_evidence_log_evidence_id ON evidence_log(evidence_id);
+    CREATE INDEX IF NOT EXISTS idx_evidence_log_ts ON evidence_log(ts);
+
     CREATE INDEX IF NOT EXISTS idx_timeline_events_case_id ON timeline_events(case_id);
     CREATE INDEX IF NOT EXISTS idx_cdr_records_case_id ON cdr_records(case_id);
     CREATE INDEX IF NOT EXISTS idx_aperture_emails_case_id ON aperture_emails(case_id);
+    CREATE INDEX IF NOT EXISTS idx_warrant_return_imports_case_id ON warrant_return_imports(case_id);
+    CREATE INDEX IF NOT EXISTS idx_warrant_return_imports_provider ON warrant_return_imports(provider);
+    CREATE INDEX IF NOT EXISTS idx_warrant_return_flags_case_id ON warrant_return_flags(case_id);
+    CREATE INDEX IF NOT EXISTS idx_warrant_return_flags_provider ON warrant_return_flags(provider);
 
     CREATE INDEX IF NOT EXISTS idx_cases_user_id ON cases(user_id);
     CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
@@ -1194,6 +1380,195 @@ function runMigrations(): void {
       safeLog('Migration 20 (timeline_events) completed');
     } catch (m20err) {
       safeLog('Migration 20 error:', m20err);
+    }
+
+    // Migration 21: Create warrant_return_imports + warrant_return_flags tables
+    try {
+      db.run(`CREATE TABLE IF NOT EXISTS warrant_return_imports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_id INTEGER NOT NULL,
+        provider TEXT NOT NULL,
+        label TEXT,
+        source_path TEXT,
+        source_kind TEXT,
+        source_ref_id INTEGER,
+        data_json TEXT NOT NULL,
+        media_index_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS warrant_return_flags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_id INTEGER NOT NULL,
+        provider TEXT NOT NULL,
+        import_id INTEGER,
+        section TEXT NOT NULL,
+        flag_key TEXT NOT NULL,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+        UNIQUE(case_id, provider, flag_key)
+      )`);
+      db.run('CREATE INDEX IF NOT EXISTS idx_warrant_return_imports_case_id ON warrant_return_imports(case_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_warrant_return_imports_provider ON warrant_return_imports(provider)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_warrant_return_flags_case_id ON warrant_return_flags(case_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_warrant_return_flags_provider ON warrant_return_flags(provider)');
+      saveDatabase();
+      safeLog('Migration 21 (warrant_return_imports + warrant_return_flags) completed');
+    } catch (m21err) {
+      safeLog('Migration 21 error:', m21err);
+    }
+
+    // Migration 22: Extend evidence table with Viper-style typed fields.
+    // ALTER TABLE ... ADD COLUMN is idempotent-safe via try/catch per column (sql.js
+    // raises if the column already exists). We add all new columns + indexes here.
+    try {
+      const evidenceAlters: { sql: string; label: string }[] = [
+        { sql: `ALTER TABLE evidence ADD COLUMN type TEXT DEFAULT 'other'`,             label: 'type' },
+        { sql: `ALTER TABLE evidence ADD COLUMN tag TEXT`,                              label: 'tag' },
+        { sql: `ALTER TABLE evidence ADD COLUMN storage_mode TEXT DEFAULT 'copy'`,      label: 'storage_mode' },
+        { sql: `ALTER TABLE evidence ADD COLUMN file_count INTEGER DEFAULT 0`,          label: 'file_count' },
+        { sql: `ALTER TABLE evidence ADD COLUMN total_size INTEGER DEFAULT 0`,          label: 'total_size' },
+        { sql: `ALTER TABLE evidence ADD COLUMN files_json TEXT`,                       label: 'files_json' },
+        { sql: `ALTER TABLE evidence ADD COLUMN meta_json TEXT`,                        label: 'meta_json' },
+        { sql: `ALTER TABLE evidence ADD COLUMN updated_at DATETIME`, label: 'updated_at' },
+      ];
+      for (const { sql, label } of evidenceAlters) {
+        try { db.run(sql); }
+        catch (colErr: any) {
+          // Column already exists — fine.
+          if (!/duplicate column/i.test(String(colErr?.message || ''))) {
+            safeLog(`Migration 22 ALTER (${label}) error:`, colErr);
+          }
+        }
+      }
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_type ON evidence(type)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_case_type ON evidence(case_id, type)');
+      saveDatabase();
+      safeLog('Migration 22 (evidence typed fields) completed');
+    } catch (m22err) {
+      safeLog('Migration 22 error:', m22err);
+    }
+
+    // Migration 23: UC Chat Operations (undercover) — personas, chats,
+    // chat-case links, chat events, and the evidence_log (chain of custody).
+    // All CREATE TABLE IF NOT EXISTS so it's a no-op on a fresh schema.
+    try {
+      db.run(`CREATE TABLE IF NOT EXISTS uc_personas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        display_name TEXT NOT NULL,
+        real_age INTEGER,
+        displayed_age INTEGER,
+        gender TEXT,
+        hometown TEXT,
+        bio TEXT,
+        backstory TEXT,
+        avatar_path TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        archived_at DATETIME
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS uc_chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        persona_id INTEGER NOT NULL,
+        platform TEXT NOT NULL,
+        platform_url TEXT,
+        suspect_handle TEXT,
+        suspect_display_name TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        primary_case_id INTEGER,
+        unread_count INTEGER NOT NULL DEFAULT 0,
+        last_activity_at DATETIME,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        archived_at DATETIME,
+        FOREIGN KEY (persona_id) REFERENCES uc_personas(id),
+        FOREIGN KEY (primary_case_id) REFERENCES cases(id) ON DELETE SET NULL
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS uc_chat_case_links (
+        chat_id INTEGER NOT NULL,
+        case_id INTEGER NOT NULL,
+        role TEXT NOT NULL DEFAULT 'secondary',
+        linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (chat_id, case_id),
+        FOREIGN KEY (chat_id) REFERENCES uc_chats(id) ON DELETE CASCADE,
+        FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS uc_chat_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id INTEGER NOT NULL,
+        ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+        kind TEXT NOT NULL,
+        payload_json TEXT,
+        FOREIGN KEY (chat_id) REFERENCES uc_chats(id) ON DELETE CASCADE
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS evidence_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        evidence_id INTEGER,
+        case_id INTEGER,
+        chat_id INTEGER,
+        action TEXT NOT NULL,
+        sha256 TEXT,
+        file_path TEXT,
+        size_bytes INTEGER,
+        operator_user_id INTEGER,
+        ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+        meta_json TEXT
+      )`);
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chats_persona_id ON uc_chats(persona_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chats_status ON uc_chats(status)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chats_last_activity ON uc_chats(last_activity_at)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chat_case_links_case_id ON uc_chat_case_links(case_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chat_events_chat_id ON uc_chat_events(chat_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_chat_events_ts ON uc_chat_events(ts)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_log_case_id ON evidence_log(case_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_log_chat_id ON evidence_log(chat_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_log_evidence_id ON evidence_log(evidence_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_evidence_log_ts ON evidence_log(ts)');
+      saveDatabase();
+      safeLog('Migration 23 (UC chat operations + evidence_log) completed');
+    } catch (m23err) {
+      safeLog('Migration 23 error:', m23err);
+    }
+
+    // ── Migration 24: UC persona photo library + usage log ─────────────
+    try {
+      db.run(`CREATE TABLE IF NOT EXISTS uc_persona_photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        persona_id INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        original_filename TEXT,
+        caption TEXT,
+        mime_type TEXT,
+        width INTEGER,
+        height INTEGER,
+        sha256 TEXT,
+        size_bytes INTEGER,
+        sort_order INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        archived_at DATETIME,
+        FOREIGN KEY (persona_id) REFERENCES uc_personas(id)
+      )`);
+      db.run(`CREATE TABLE IF NOT EXISTS uc_photo_uses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        photo_id INTEGER NOT NULL,
+        chat_id INTEGER NOT NULL,
+        ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+        action TEXT NOT NULL DEFAULT 'copy_to_clipboard',
+        notes TEXT,
+        FOREIGN KEY (photo_id) REFERENCES uc_persona_photos(id),
+        FOREIGN KEY (chat_id) REFERENCES uc_chats(id)
+      )`);
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_persona_photos_persona_id ON uc_persona_photos(persona_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_photo_uses_photo_id ON uc_photo_uses(photo_id)');
+      db.run('CREATE INDEX IF NOT EXISTS idx_uc_photo_uses_chat_id ON uc_photo_uses(chat_id)');
+      saveDatabase();
+      safeLog('Migration 24 (UC persona photos) completed');
+    } catch (m24err) {
+      safeLog('Migration 24 error:', m24err);
     }
 
     safeLog('Database migrations completed');

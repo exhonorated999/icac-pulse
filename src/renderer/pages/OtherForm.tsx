@@ -44,6 +44,12 @@ export function OtherForm() {
 
       console.log('Case created:', caseResult);
 
+      // Stamp modular-case defaults (Overview is implicit; user can manage later via Modules button)
+      if (caseResult?.id != null) {
+        localStorage.setItem(`caseModules_${caseResult.id}`, JSON.stringify(['suspect', 'report']));
+        localStorage.setItem(`caseModulesV2_${caseResult.id}`, '1');
+      }
+
       // Save Other-specific data (synopsis as case_type_description)
       await window.electronAPI.saveOtherData({
         caseId: caseResult.id,

@@ -56,6 +56,12 @@ export function ChatForm() {
 
       console.log('Case created:', caseResult);
 
+      // Stamp modular-case defaults (Overview is implicit; user can manage later via Modules button)
+      if (caseResult?.id != null) {
+        localStorage.setItem(`caseModules_${caseResult.id}`, JSON.stringify(['suspect', 'warrants', 'report']));
+        localStorage.setItem(`caseModulesV2_${caseResult.id}`, '1');
+      }
+
       // Parse usernames - split by comma or newline
       const usernamesList = formData.usernames
         .split(/[,\n]/)

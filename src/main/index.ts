@@ -2,6 +2,7 @@ import { app, BrowserWindow, BrowserView, ipcMain, dialog, protocol, globalShort
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import * as url from 'url';
 import * as https from 'https';
 import * as http from 'http';
 import { spawn } from 'child_process';
@@ -9,8 +10,25 @@ import AdmZip from 'adm-zip';
 import { initDatabase, getDatabase, getRawDatabase, closeDatabase, saveDatabase, getCasesPath, setCasesPath, getUserDataPath } from './database';
 import { generateHardwareId, verifyHardwareId } from './hardware';
 import * as fileManager from './fileManager';
+import * as evidenceManager from './evidenceManager';
+import * as caseExporter from './caseExporter';
+import * as caseImporter from './caseImporter';
+import * as datapilotParser from './datapilotParser';
+import * as downloadCapture from './downloadCapture';
+import * as auditLog from './auditLog';
+import * as uc from './uc';
 import { parseNCMECPDF } from './pdfParser';
 import { parseRmsReport } from './rmsParser';
+import { MetaWarrantParser } from './metaWarrantParser';
+import { buildMetaWarrantReport } from './metaWarrantHtmlReport';
+import { GoogleWarrantParser } from './googleWarrantParser';
+import { buildGoogleWarrantReport } from './googleWarrantHtmlReport';
+import { KikWarrantParser } from './kikWarrantParser';
+import { buildKikWarrantReport } from './kikWarrantHtmlReport';
+import { SnapWarrantParser } from './snapWarrantParser';
+import { buildSnapWarrantReport } from './snapWarrantHtmlReport';
+import { DiscordWarrantParser } from './discordWarrantParser';
+import { buildDiscordWarrantReport } from './discordWarrantHtmlReport';
 import { verifyEmail } from './emailVerifier';
 import { IPC_CHANNELS } from '../shared/types';
 import { initSecurityDb, isUserRegistered, registerUser, loginUser, changePassword, getCurrentUser } from './security';
@@ -462,6 +480,27 @@ app.whenReady().then(async () => {
     callback({ path: filePath });
   });
 
+  // Register custom protocol for serving UC persona photos.
+  // URL shape: uc-photo://<persona_id>/<filename>
+  // Maps to <userData>/uc_photos/<persona_id>/<filename> on disk.
+  protocol.registerFileProtocol('uc-photo', (request, callback) => {
+    try {
+      const raw = request.url.replace(/^uc-photo:\/\//, '');
+      const rel = decodeURIComponent(raw.replace(/\/+$/, ''));
+      const photosRoot = uc.photos.getPhotosRoot();
+      const abs = path.join(photosRoot, rel);
+      // Sandbox: ensure the resolved path is still inside the photos root.
+      const normalized = path.normalize(abs);
+      if (!normalized.startsWith(path.normalize(photosRoot))) {
+        return callback({ error: -10 /* ACCESS_DENIED */ });
+      }
+      callback({ path: normalized });
+    } catch (e) {
+      console.warn('[uc-photo-protocol]', e);
+      callback({ error: -6 /* FILE_NOT_FOUND */ });
+    }
+  });
+
   // Initialize database
   await initDatabase();
   
@@ -479,6 +518,39 @@ app.whenReady().then(async () => {
   
   // Create window
   createWindow();
+
+  // Attach download interceptors to all resource BrowserView session partitions.
+  // Each partition gets a will-download hook that stages files to a temp dir and
+  // notifies the renderer, which then prompts the user to route the file into
+  // Evidence, the Cybertip module, the OS Downloads folder, or discard it.
+  const getMainWin = () => mainWindow;
+  downloadCapture.attachDownloadInterceptor('persist:flock',     'Flock Safety',       getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:tlo',       'TLO',                getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:icaccops',  'ICAC Cops',          getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:gridcop',   'GridCop',            getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:vigilant',  'Vigilant LPR',       getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:trclear',   'Thomson Reuters CLEAR', getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:accurint',  'Accurint',           getMainWin);
+  downloadCapture.attachDownloadInterceptor('persist:icacds',    'ICAC Data System',   getMainWin);
+
+  // UC Chat Operations — register persona/chat/BV/alert IPC handlers.
+  try {
+    uc.registerUcIpc({ getMainWindow: getMainWin });
+  } catch (err) {
+    console.error('[main] failed to register UC IPC:', err);
+  }
+
+  // Audit log: record application launch (best-effort; runs after DB is ready)
+  try {
+    auditLog.logEvent('app_launch', {
+      platform: process.platform,
+      electron: process.versions.electron,
+      node: process.versions.node,
+      app_version: app.getVersion(),
+    });
+  } catch (err) {
+    console.error('[main] audit app_launch failed:', err);
+  }
 
   // Boss key: Ctrl+Alt+M toggles media player visibility in renderer
   globalShortcut.register('CommandOrControl+Alt+M', () => {
@@ -786,6 +858,7 @@ function registerIPCHandlers() {
       
       const returnValue = { id: caseId, ...caseData };
       // safeLog('Returning from CREATE_CASE:', returnValue);
+      auditLog.logEvent('case_created', { case_id: caseId, case_number: caseData.caseNumber });
       return returnValue;
     } catch (error) {
       // safeLog('CREATE_CASE error:', error);
@@ -817,9 +890,23 @@ function registerIPCHandlers() {
   
   ipcMain.handle(IPC_CHANNELS.GET_ALL_CASES, async () => {
     const stmt = db.prepare(`
-      SELECT * FROM cases ORDER BY created_at DESC
+      SELECT
+        c.*,
+        (
+          SELECT GROUP_CONCAT(s.name, ', ')
+          FROM suspects s
+          WHERE s.case_id = c.id AND s.name IS NOT NULL AND TRIM(s.name) <> ''
+        ) AS suspects_summary,
+        (
+          SELECT COUNT(*) FROM suspects s WHERE s.case_id = c.id
+        ) AS suspect_count,
+        (
+          SELECT COUNT(*) FROM evidence e WHERE e.case_id = c.id
+        ) AS evidence_count
+      FROM cases c
+      ORDER BY c.created_at DESC
     `);
-    
+
     return stmt.all();
   });
   
@@ -2581,7 +2668,7 @@ function registerIPCHandlers() {
   // Case Transfer - Export Complete Case
   ipcMain.handle(IPC_CHANNELS.GET_EXPORT_SIZE, async (_event, caseId: number) => {
     try {
-      const { calculateExportSize } = require('./caseExporter');
+      const { calculateExportSize } = caseExporter;
       const size = await calculateExportSize(caseId);
       return { success: true, size };
     } catch (error: any) {
@@ -2629,7 +2716,7 @@ function registerIPCHandlers() {
       const outputPath = result.filePath;
       
       // Import exporter and run export
-      const { exportCompleteCase } = require('./caseExporter');
+      const { exportCompleteCase } = caseExporter;
       
       const exportResult = await exportCompleteCase({
         caseId,
@@ -2660,7 +2747,7 @@ function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.VALIDATE_IMPORT_FILE, async (_event, data: any) => {
     try {
       const { filePath, password } = data;
-      const { validateImportFile } = require('./caseImporter');
+      const { validateImportFile } = caseImporter;
       
       const result = await validateImportFile(filePath, password);
       return result;
@@ -2677,7 +2764,7 @@ function registerIPCHandlers() {
       const { filePath, password } = data;
       
       // Import importer and run import
-      const { importCompleteCase } = require('./caseImporter');
+      const { importCompleteCase } = caseImporter;
       
       const importResult = await importCompleteCase({
         filePath,
@@ -2828,6 +2915,111 @@ function registerIPCHandlers() {
           // safeLog('Exported evidence');
         }
       }
+
+      // 5. Export complete database snapshot for the case
+      // (Files-only exports lose suspects, warrants metadata, prosecution info,
+      //  timeline, CDR, aperture, warrant returns, ops plan, etc. We dump
+      //  every case-scoped table so the DA has the full record alongside
+      //  the raw files.)
+      try {
+        const safeAll = (sql: string, ...params: any[]): any[] => {
+          try { return db.prepare(sql).all(...params); } catch { return []; }
+        };
+        const safeGet = (sql: string, ...params: any[]): any => {
+          try { return db.prepare(sql).get(...params); } catch { return undefined; }
+        };
+
+        const caseRecord = safeGet('SELECT * FROM cases WHERE id = ?', caseId);
+        let caseTypeData: any = null;
+        if (caseRecord) {
+          if (caseRecord.case_type === 'cybertip') {
+            caseTypeData = safeGet('SELECT * FROM cybertip_data WHERE case_id = ?', caseId) || {};
+            caseTypeData.identifiers = safeAll('SELECT * FROM cybertip_identifiers WHERE case_id = ?', caseId);
+            caseTypeData.files = safeAll('SELECT * FROM cybertip_files WHERE case_id = ?', caseId);
+          } else if (caseRecord.case_type === 'p2p') {
+            caseTypeData = safeGet('SELECT * FROM p2p_data WHERE case_id = ?', caseId);
+          } else if (caseRecord.case_type === 'chat') {
+            caseTypeData = safeGet('SELECT * FROM chat_data WHERE case_id = ?', caseId) || {};
+            caseTypeData.identifiers = safeAll('SELECT * FROM chat_identifiers WHERE case_id = ?', caseId);
+          } else if (caseRecord.case_type === 'other') {
+            caseTypeData = safeGet('SELECT * FROM other_data WHERE case_id = ?', caseId) || {};
+            caseTypeData.identifiers = safeAll('SELECT * FROM other_identifiers WHERE case_id = ?', caseId);
+          }
+        }
+
+        const suspect = safeGet('SELECT * FROM suspects WHERE case_id = ?', caseId);
+        const opsPlan =
+          safeGet('SELECT * FROM operations_plans WHERE case_id = ?', caseId);
+
+        const caseSnapshot: any = {
+          export_metadata: {
+            pulse_version: app.getVersion(),
+            export_type: 'da_case_export',
+            export_date: new Date().toISOString(),
+            case_number: caseNumber,
+            case_type: caseType,
+            exported_by:
+              db.prepare('SELECT username FROM users LIMIT 1').get()?.username || 'Unknown',
+            export_options: exportOptions
+          },
+          case: caseRecord,
+          caseTypeData,
+          suspect,
+          weapons: suspect ? safeAll('SELECT * FROM weapons WHERE suspect_id = ?', suspect.id) : [],
+          suspectPhotos: safeAll('SELECT * FROM suspect_photos WHERE case_id = ?', caseId),
+          warrants: safeAll('SELECT * FROM warrants WHERE case_id = ?', caseId),
+          evidence: safeAll('SELECT * FROM evidence WHERE case_id = ?', caseId),
+          notes: safeAll('SELECT * FROM case_notes WHERE case_id = ? ORDER BY created_at ASC', caseId),
+          prosecution: safeGet('SELECT * FROM prosecution_info WHERE case_id = ?', caseId),
+          probableCause: safeGet('SELECT * FROM probable_cause WHERE case_id = ?', caseId),
+          report: safeGet('SELECT * FROM case_reports WHERE case_id = ?', caseId),
+          opsPlan,
+          opsEntryTeam: opsPlan ? safeAll('SELECT * FROM ops_entry_team WHERE ops_plan_id = ? ORDER BY sort_order ASC', opsPlan.id) : [],
+          opsOtherResidents: opsPlan ? safeAll('SELECT * FROM ops_other_residents WHERE ops_plan_id = ? ORDER BY sort_order ASC', opsPlan.id) : [],
+          todos: safeAll('SELECT * FROM todos WHERE case_id = ?', caseId),
+          timelineEvents: safeAll('SELECT * FROM timeline_events WHERE case_id = ? ORDER BY timestamp ASC', caseId),
+          cdrRecords: safeAll('SELECT * FROM cdr_records WHERE case_id = ?', caseId),
+          apertureEmails: safeAll('SELECT * FROM aperture_emails WHERE case_id = ? ORDER BY date_sent ASC', caseId),
+          apertureNotes: safeAll('SELECT * FROM aperture_notes WHERE case_id = ?', caseId),
+          warrantReturnImports: safeAll('SELECT * FROM warrant_return_imports WHERE case_id = ?', caseId),
+          warrantReturnFlags: safeAll('SELECT * FROM warrant_return_flags WHERE case_id = ?', caseId),
+          chatHighlights: safeAll(
+            `SELECT ch.* FROM chat_highlights ch
+             INNER JOIN evidence ev ON ev.id = ch.evidence_id
+             WHERE ev.case_id = ?`,
+            caseId
+          ),
+          auditLog: safeAll(
+            `SELECT * FROM audit_log
+             WHERE event_data LIKE ? OR event_data LIKE ?
+             ORDER BY seq ASC`,
+            `%"case_id":${caseId}%`,
+            `%"case_number":"${caseNumber}"%`
+          )
+        };
+
+        const snapshotDir = path.join(exportPath, '0_Case_Data');
+        fs.mkdirSync(snapshotDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(snapshotDir, 'case_data.json'),
+          JSON.stringify(caseSnapshot, null, 2),
+          'utf-8'
+        );
+        filesCount++;
+      } catch (snapshotErr) {
+        // Don't fail the whole export — file copies are the primary
+        // deliverable. Just include an error note in the README.
+        try {
+          fs.writeFileSync(
+            path.join(exportPath, 'CASE_DATA_EXPORT_ERROR.txt'),
+            `Case database snapshot failed: ${(snapshotErr as Error).message}\n\n` +
+            `The files in this export are complete, but the structured database\n` +
+            `records (suspects, warrants metadata, timeline, etc.) could not be\n` +
+            `written. Please contact your administrator.\n`,
+            'utf-8'
+          );
+        } catch { /* swallow */ }
+      }
       
       // Create README file
       const readmeContent = `ICAC P.U.L.S.E. - District Attorney Case Export
@@ -2842,6 +3034,12 @@ ${'='.repeat(80)}
 
 Contents of this export:
 
+0. Case Data - case_data.json: full structured database snapshot for this case
+   (case record, suspect(s), weapons, warrants metadata, evidence inventory,
+   notes, prosecution info, probable cause statement, case report, operations
+   plan + entry team, todos, timeline events, CDR records, Aperture emails +
+   notes, warrant return imports/flags, chat highlights, related audit log
+   entries)
 ${caseType === 'cybertip' ? '1. CyberTip Files - NCMEC CyberTipline report and associated files\n' : ''}2. Search Warrants - All warrant PDFs and return data folders
 3. Case Notes - Chronological case notes in text format
 4. Evidence - All evidence files and folders uploaded to the case
@@ -2855,6 +3053,8 @@ IMPORTANT NOTES:
 3. All file timestamps and metadata are preserved
 4. Folder structure matches original case organization
 5. This is a complete export suitable for prosecution review
+6. case_data.json contains every database record tied to this case —
+   open with any text editor or JSON viewer for the full record set
 
 ${'='.repeat(80)}
 
@@ -2999,6 +3199,602 @@ For questions about this export, contact the investigating officer.
     } catch (error: any) {
       return { success: false, error: error.message };
     }
+  });
+
+  // ========== Resource Download Capture ==========
+  // The renderer calls these handlers after a `resource-download-complete`
+  // event is received and the user has chosen a destination.
+
+  ipcMain.handle('resource-download-route-to-evidence', async (_event, args: {
+    downloadId: string;
+    caseId: number;
+    caseNumber: string;
+    type?: string;
+    tag?: string | null;
+    description?: string;
+  }) => {
+    try {
+      const handle = downloadCapture.consumeDownload(args.downloadId);
+      if (!handle) return { success: false, error: 'Download not found or already consumed' };
+      if (!fs.existsSync(handle.tempPath)) return { success: false, error: 'Staged file missing' };
+
+      const mgr = evidenceManager;
+      const tag = args.tag || `download_${Date.now()}`;
+      const result = mgr.copyFilesToEvidence(args.caseNumber, tag, [handle.tempPath], null);
+
+      const payload = mgr.serializePayload({
+        type: args.type || 'digital',
+        tag,
+        description: args.description || handle.filename,
+        storage_mode: 'copy',
+        file_path: result.evidenceDirRel || '',
+        file_count: result.fileCount,
+        total_size: result.totalSize,
+        files: result.files,
+        meta: { source: 'resource-download', filename: handle.filename },
+        category: 'Other',
+      });
+
+      const db = getDatabase();
+      const _ins = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        args.caseId,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      // Chain-of-custody: hash the final file and write evidence_log row.
+      // For multi-file evidence, hash the staged primary file (handle.tempPath
+      // still exists until discardDownload). Bind to UC chat if known.
+      try {
+        const evidenceId = Number((_ins as any)?.lastInsertRowid) || null;
+        await uc.evlog.recordEvidenceLog({
+          evidenceId,
+          caseId: args.caseId,
+          chatId: handle.chatId ?? null,
+          action: 'route',
+          filePath: handle.tempPath,
+          meta: {
+            destination: 'evidence',
+            tag,
+            provider: handle.provider,
+            filename: handle.filename,
+            evidence_rel_path: result.evidenceDirRel || null,
+          },
+        });
+        if (handle.chatId) {
+          try {
+            uc.chats.appendEvent(handle.chatId, 'route', {
+              destination: 'evidence',
+              caseId: args.caseId,
+              caseNumber: args.caseNumber,
+              evidenceId,
+              filename: handle.filename,
+            });
+            // Auto-link chat to this case (secondary) if not already linked.
+            try { uc.chats.linkCase(handle.chatId, args.caseId, 'secondary'); } catch { /* ignore dup */ }
+          } catch { /* ignore */ }
+        }
+      } catch (e) { console.warn('[evlog-route-evidence]', e); }
+
+      downloadCapture.discardDownload(args.downloadId);
+      return { success: true };
+    } catch (error: any) {
+      console.error('[download-route-to-evidence] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('resource-download-route-to-cybertip', async (_event, args: {
+    downloadId: string;
+    caseId: number;
+    caseNumber: string;
+    officerDescription?: string;
+    ipAddress?: string;
+    datetime?: string;
+    ncmecFilename?: string;
+    csamDescription?: string;
+  }) => {
+    try {
+      const handle = downloadCapture.consumeDownload(args.downloadId);
+      if (!handle) return { success: false, error: 'Download not found or already consumed' };
+      if (!fs.existsSync(handle.tempPath)) return { success: false, error: 'Staged file missing' };
+
+      const relativePath = fileManager.copyFileToCase(handle.tempPath, args.caseNumber, 'cybertip');
+
+      const db = getDatabase();
+      const _insCt = db.prepare(`
+        INSERT INTO cybertip_files (case_id, filename, ip_address, datetime, officer_description, file_path, ncmec_filename, csam_description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        args.caseId,
+        handle.filename,
+        args.ipAddress || null,
+        args.datetime || null,
+        args.officerDescription || null,
+        relativePath,
+        args.ncmecFilename || null,
+        args.csamDescription || null,
+      );
+      saveDatabase();
+
+      try {
+        const ctRowId = Number((_insCt as any)?.lastInsertRowid) || null;
+        await uc.evlog.recordEvidenceLog({
+          caseId: args.caseId,
+          chatId: handle.chatId ?? null,
+          action: 'route',
+          filePath: handle.tempPath,
+          meta: {
+            destination: 'cybertip',
+            cybertip_file_id: ctRowId,
+            provider: handle.provider,
+            filename: handle.filename,
+            relative_path: relativePath,
+          },
+        });
+        if (handle.chatId) {
+          try {
+            uc.chats.appendEvent(handle.chatId, 'route', {
+              destination: 'cybertip',
+              caseId: args.caseId,
+              caseNumber: args.caseNumber,
+              cybertipFileId: ctRowId,
+              filename: handle.filename,
+            });
+            try { uc.chats.linkCase(handle.chatId, args.caseId, 'secondary'); } catch { /* ignore dup */ }
+          } catch { /* ignore */ }
+        }
+      } catch (e) { console.warn('[evlog-route-cybertip]', e); }
+
+      downloadCapture.discardDownload(args.downloadId);
+      return { success: true, relativePath };
+    } catch (error: any) {
+      console.error('[download-route-to-cybertip] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('resource-download-move-to-downloads', async (_event, args: { downloadId: string }) => {
+    return downloadCapture.moveToDownloads(args.downloadId);
+  });
+
+  ipcMain.handle('resource-download-discard', async (_event, args: { downloadId: string }) => {
+    return downloadCapture.discardDownload(args.downloadId);
+  });
+
+  // ── Route a staged download into the case's Warrants/Production folder ─────
+  // The user picks a case + (optional) subfolder name; the file is copied
+  // into cases/<caseNumber>/warrants/production[/<subfolder>]/ and a row is
+  // added to evidence with category="Warrant Production" so it shows up in
+  // the case detail view.
+  ipcMain.handle('resource-download-route-to-warrant-production', async (_event, args: {
+    downloadId: string;
+    caseId: number;
+    caseNumber: string;
+    subfolder?: string | null;
+    description?: string;
+  }) => {
+    try {
+      const handle = downloadCapture.consumeDownload(args.downloadId);
+      if (!handle) return { success: false, error: 'Download not found or already consumed' };
+      if (!fs.existsSync(handle.tempPath)) return { success: false, error: 'Staged file missing' };
+
+      const casesRoot = getCasesPath();
+      const caseDir = path.join(casesRoot, args.caseNumber);
+      if (!fs.existsSync(caseDir)) fs.mkdirSync(caseDir, { recursive: true });
+
+      // Production lives under warrants/ to align with the existing returns folder
+      const productionRoot = path.join(caseDir, 'warrants', 'production');
+      const sub = (args.subfolder || '').replace(/[\\/]+/g, '_').replace(/[<>:"|?*\x00-\x1f]+/g, '_').trim();
+      const targetDir = sub ? path.join(productionRoot, sub) : productionRoot;
+      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+      let destPath = path.join(targetDir, handle.filename);
+      if (fs.existsSync(destPath)) {
+        const ext = path.extname(handle.filename);
+        const stem = path.basename(handle.filename, ext);
+        let i = 1;
+        while (fs.existsSync(path.join(targetDir, `${stem} (${i})${ext}`))) i++;
+        destPath = path.join(targetDir, `${stem} (${i})${ext}`);
+      }
+      fs.copyFileSync(handle.tempPath, destPath);
+
+      const relPath = path.relative(casesRoot, destPath);
+      const finalName = path.basename(destPath);
+
+      // Insert an evidence row tagged as Warrant Production so it's visible
+      // alongside other case artifacts.
+      const stat = fs.statSync(destPath);
+      const filesJson = JSON.stringify([{ name: finalName, path: relPath, size: stat.size }]);
+      const metaJson = JSON.stringify({
+        source: 'resource-capture',
+        provider: handle.filename,
+        subfolder: sub || null,
+      });
+
+      const db = getDatabase();
+      const _insWp = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        args.caseId,
+        args.description || finalName,
+        relPath,
+        'Warrant Production',
+        'document',
+        sub ? `production/${sub}` : 'production',
+        'copy',
+        1,
+        stat.size,
+        filesJson,
+        metaJson,
+      );
+      saveDatabase();
+
+      try {
+        const evidenceId = Number((_insWp as any)?.lastInsertRowid) || null;
+        await uc.evlog.recordEvidenceLog({
+          evidenceId,
+          caseId: args.caseId,
+          chatId: handle.chatId ?? null,
+          action: 'route',
+          filePath: destPath,
+          meta: {
+            destination: 'warrant-production',
+            subfolder: sub || null,
+            provider: handle.provider,
+            filename: finalName,
+            relative_path: relPath,
+          },
+        });
+        if (handle.chatId) {
+          try {
+            uc.chats.appendEvent(handle.chatId, 'route', {
+              destination: 'warrant-production',
+              caseId: args.caseId,
+              caseNumber: args.caseNumber,
+              evidenceId,
+              filename: finalName,
+            });
+            try { uc.chats.linkCase(handle.chatId, args.caseId, 'secondary'); } catch { /* ignore dup */ }
+          } catch { /* ignore */ }
+        }
+      } catch (e) { console.warn('[evlog-route-warrant]', e); }
+
+      downloadCapture.discardDownload(args.downloadId);
+      return { success: true, relativePath: relPath };
+    } catch (error: any) {
+      console.error('[download-route-to-warrant-production] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ========== Resource Hub Capture (PDF + SingleFile HTML) ==========
+  // Captures the current page rendered in an embedded resource BrowserView,
+  // writes it to the same staging directory used by intercepted downloads,
+  // then registers it with downloadCapture so the existing routing modal
+  // picks it up. Matches the Project VIPER implementation.
+
+  function _sanitizeCaptureName(s: string): string {
+    return (s || '').replace(/[\\/]+/g, '_').replace(/[<>:"|?*\x00-\x1f]+/g, '_').trim();
+  }
+
+  function _resourceCaptureMap(): Record<string, { bv: BrowserView | null; label: string; partition: string }> {
+    return {
+      flock:    { bv: flockBrowserView,    label: 'Flock Safety',           partition: 'persist:flock'    },
+      tlo:      { bv: tloBrowserView,      label: 'TLO',                    partition: 'persist:tlo'      },
+      icaccops: { bv: icaccopsBrowserView, label: 'ICAC Cops',              partition: 'persist:icaccops' },
+      gridcop:  { bv: gridcopBrowserView,  label: 'GridCop',                partition: 'persist:gridcop'  },
+      vigilant: { bv: vigilantBrowserView, label: 'Vigilant LPR',           partition: 'persist:vigilant' },
+      trclear:  { bv: trclearBrowserView,  label: 'Thomson Reuters CLEAR',  partition: 'persist:trclear'  },
+      accurint: { bv: accurintBrowserView, label: 'Accurint',               partition: 'persist:accurint' },
+      icacds:   { bv: icacdsBrowserView,   label: 'ICAC Data System',       partition: 'persist:icacds'   },
+    };
+  }
+
+  function _getCaptureTarget(resourceId: string): { bv: BrowserView; label: string; partition: string } | { error: string } {
+    if (resourceId && resourceId.startsWith('byoa_')) {
+      const id = resourceId.slice(5);
+      const entry = byoaViews.get(id);
+      if (!entry || entry.view.webContents.isDestroyed()) {
+        return { error: 'BYOA view not available' };
+      }
+      return { bv: entry.view, label: `BYOA (${id})`, partition: `persist:byoa_${id}` };
+    }
+    // UC Chat capture target: resourceId = 'uc_chat_<n>'
+    if (resourceId && resourceId.startsWith('uc_chat_')) {
+      const chatId = parseInt(resourceId.slice(8), 10);
+      if (!chatId) return { error: 'Invalid UC chat id' };
+      try {
+        const bv = uc.bvs.getChatView(chatId);
+        if (!bv) return { error: 'UC chat view not open' };
+        const partition = uc.bvs.getChatPartition(chatId) || `persist:uc_chat_${chatId}`;
+        return { bv, label: `UC Chat #${chatId}`, partition };
+      } catch (e: any) {
+        return { error: `UC chat lookup failed: ${e?.message || e}` };
+      }
+    }
+    const meta = _resourceCaptureMap()[resourceId];
+    if (!meta) return { error: `Unknown resource: ${resourceId}` };
+    if (!meta.bv || meta.bv.webContents.isDestroyed()) return { error: `${meta.label} view not available` };
+    return { bv: meta.bv, label: meta.label, partition: meta.partition };
+  }
+
+  ipcMain.handle('resource-capture-pdf', async (_event, args: { resourceId: string }) => {
+    try {
+      const target = _getCaptureTarget(args.resourceId);
+      if ('error' in target) return { success: false, error: target.error };
+
+      const wc = target.bv.webContents;
+      const sourceUrl = wc.getURL() || '';
+      let title = '';
+      try { title = await wc.executeJavaScript('document.title || ""'); } catch { /* ignore */ }
+      const safeTitle = _sanitizeCaptureName((title || target.label).replace(/\s+/g, '_')).slice(0, 80);
+      const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+      const filename = `${safeTitle || target.label.replace(/\s+/g, '_')}_${ts}.pdf`;
+
+      const stage = downloadCapture.getCaptureStagingDir();
+      const tempName = `cap_${Date.now()}_${crypto.randomBytes(4).toString('hex')}__${filename}`;
+      const tempPath = path.join(stage, tempName);
+
+      const pdfBuf = await wc.printToPDF({
+        printBackground: true,
+        pageSize: 'Letter',
+        margins: { marginType: 'custom', top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
+      });
+      fs.writeFileSync(tempPath, pdfBuf);
+
+      // Detect UC chat capture (resourceId pattern uc_chat_<n>) so we can
+      // round-trip the chatId through staging into the route handlers.
+      let _ucChatId: number | null = null;
+      if (args.resourceId.startsWith('uc_chat_')) {
+        const n = parseInt(args.resourceId.slice(8), 10);
+        if (n) _ucChatId = n;
+      }
+
+      downloadCapture.registerStagedCapture({
+        filePath: tempPath,
+        filename,
+        provider: target.label,
+        partition: target.partition,
+        mimeType: 'application/pdf',
+        sourceUrl,
+        getWindow: () => mainWindow,
+        chatId: _ucChatId,
+      });
+
+      // UC chat capture? Append event so the chat timeline reflects it.
+      try {
+        if (_ucChatId) {
+          uc.chats.appendEvent(_ucChatId, 'capture', { kind: 'pdf', filename, sourceUrl });
+          // Log capture itself in chain-of-custody (no evidence_id yet — set on route).
+          try {
+            await uc.evlog.recordEvidenceLog({
+              chatId: _ucChatId,
+              action: 'create',
+              filePath: tempPath,
+              meta: { kind: 'pdf', stage: 'capture', sourceUrl },
+            });
+          } catch (e) { console.warn('[uc-evlog-capture-pdf]', e); }
+        }
+      } catch (e) { console.warn('[uc-capture-event]', e); }
+
+      return { success: true, filename };
+    } catch (err: any) {
+      console.error('[resource-capture-pdf]', err);
+      return { success: false, error: err?.message || String(err) };
+    }
+  });
+
+  // Cached SingleFile bundle script string (ESM, loaded once via dynamic import)
+  let _sfScriptCache: string | null = null;
+  async function _loadSingleFileScript(): Promise<string> {
+    if (_sfScriptCache) return _sfScriptCache;
+    // Try a few likely locations:
+    //   - dev:   <project>/node_modules/single-file-cli/lib/single-file-bundle.js
+    //   - prod:  resourcesPath/app.asar.unpacked/node_modules/single-file-cli/lib/single-file-bundle.js
+    //   - prod:  resourcesPath/node_modules/single-file-cli/lib/single-file-bundle.js
+    const candidates = [
+      path.join(app.getAppPath(), 'node_modules', 'single-file-cli', 'lib', 'single-file-bundle.js'),
+      path.join(process.resourcesPath || '', 'app.asar.unpacked', 'node_modules', 'single-file-cli', 'lib', 'single-file-bundle.js'),
+      path.join(process.resourcesPath || '', 'node_modules', 'single-file-cli', 'lib', 'single-file-bundle.js'),
+      path.join(__dirname, '..', '..', 'node_modules', 'single-file-cli', 'lib', 'single-file-bundle.js'),
+    ];
+    let bundlePath = candidates.find(p => p && fs.existsSync(p));
+    if (!bundlePath) {
+      throw new Error('SingleFile bundle not found. Looked in: ' + candidates.join(' | '));
+    }
+    const fileUrl = url.pathToFileURL(bundlePath).href;
+    const mod: any = await import(fileUrl);
+    if (!mod || typeof mod.script !== 'string') {
+      throw new Error('SingleFile bundle did not expose a `script` string');
+    }
+    _sfScriptCache = mod.script;
+    return _sfScriptCache!;
+  }
+
+  ipcMain.handle('resource-capture-html', async (_event, args: { resourceId: string }) => {
+    try {
+      const target = _getCaptureTarget(args.resourceId);
+      if ('error' in target) return { success: false, error: target.error };
+
+      const wc = target.bv.webContents;
+      const sourceUrl = wc.getURL() || '';
+      let title = '';
+      try { title = await wc.executeJavaScript('document.title || ""'); } catch { /* ignore */ }
+      const safeTitle = _sanitizeCaptureName((title || target.label).replace(/\s+/g, '_')).slice(0, 80);
+      const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+      const filename = `${safeTitle || target.label.replace(/\s+/g, '_')}_${ts}.html`;
+
+      const stage = downloadCapture.getCaptureStagingDir();
+      const tempName = `cap_${Date.now()}_${crypto.randomBytes(4).toString('hex')}__${filename}`;
+      const tempPath = path.join(stage, tempName);
+
+      // 1) Inject the SingleFile bundle into the BrowserView's main world.
+      const sfScript = await _loadSingleFileScript();
+      await wc.executeJavaScript(sfScript, /* userGesture */ true);
+
+      // 2) Let the page fully settle before snapshotting. Modern web apps
+      // (Flock, TLO, etc.) defer-load fonts, CSS, and rendering — without
+      // this delay SingleFile can capture before computed styles stabilize,
+      // producing the "unstyled" look (white bg, system fonts, default
+      // form widgets).
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 3) Run getPageData() to produce a fully inlined HTML document.
+      //    Every "remove*" flag is FALSE so we preserve the original look.
+      const html = await wc.executeJavaScript(`
+        (async () => {
+          try {
+            const opts = {
+              // === Preservation flags (default true → force false) ===
+              removeHiddenElements: false,
+              removeUnusedStyles: false,
+              removeUnusedFonts: false,
+              removeAlternativeFonts: false,
+              removeImports: false,
+              removeScripts: false,
+              compressHTML: false,
+              compressCSS: false,
+              groupDuplicateImages: false,
+              maxResourceSizeEnabled: false,
+              // === Behavior ===
+              blockScripts: true,        // CSP-block JS on the saved file
+              blockVideos: false,
+              blockAudios: false,
+              saveFavicon: true,
+              removeFrames: false,
+              backgroundSave: false,
+              displayInfobar: false,
+              insertSingleFileComment: true,
+              // === Wait for async-loaded resources ===
+              loadDeferredImages: true,
+              loadDeferredImagesMaxIdleTime: 2500,
+              loadDeferredImagesBlockCookies: false,
+              loadDeferredImagesBlockStorage: false,
+              loadDeferredImagesKeepZoomLevel: false,
+              networkTimeout: 60000,
+            };
+            const pd = await singlefile.getPageData(opts);
+            return pd && pd.content ? pd.content : '';
+          } catch (e) {
+            return '__SF_ERR__:' + (e && e.stack ? e.stack : (e && e.message ? e.message : String(e)));
+          }
+        })()
+      `, /* userGesture */ true);
+
+      if (typeof html !== 'string' || !html) {
+        return { success: false, error: 'SingleFile returned empty content' };
+      }
+      if (html.startsWith('__SF_ERR__:')) {
+        const errMsg = html.slice('__SF_ERR__:'.length);
+        console.error('[resource-capture-html] SingleFile threw:', errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      // Sanity check: if we got back a suspiciously small HTML (under 8KB for
+      // a real page typically means stylesheets are missing) log a warning
+      // but still save it.
+      if (html.length < 8 * 1024) {
+        console.warn('[resource-capture-html] capture is small (' + html.length + ' bytes) — page may not have rendered fully; check console for SingleFile warnings.');
+      }
+
+      fs.writeFileSync(tempPath, html, 'utf8');
+
+      // Detect UC chat capture for chatId round-trip + chain-of-custody.
+      let _ucChatId2: number | null = null;
+      if (args.resourceId.startsWith('uc_chat_')) {
+        const n = parseInt(args.resourceId.slice(8), 10);
+        if (n) _ucChatId2 = n;
+      }
+
+      downloadCapture.registerStagedCapture({
+        filePath: tempPath,
+        filename,
+        provider: target.label,
+        partition: target.partition,
+        mimeType: 'text/html',
+        sourceUrl,
+        getWindow: () => mainWindow,
+        chatId: _ucChatId2,
+      });
+
+      // UC chat capture? Append event so the chat timeline reflects it.
+      try {
+        if (_ucChatId2) {
+          uc.chats.appendEvent(_ucChatId2, 'capture', { kind: 'html', filename, sourceUrl, size: html.length });
+          try {
+            await uc.evlog.recordEvidenceLog({
+              chatId: _ucChatId2,
+              action: 'create',
+              filePath: tempPath,
+              meta: { kind: 'html', stage: 'capture', sourceUrl, size: html.length },
+            });
+          } catch (e) { console.warn('[uc-evlog-capture-html]', e); }
+        }
+      } catch (e) { console.warn('[uc-capture-event]', e); }
+
+      return { success: true, filename, size: html.length };
+    } catch (err: any) {
+      console.error('[resource-capture-html]', err);
+      return { success: false, error: err?.message || String(err) };
+    }
+  });
+
+  // ========== Audit Log ==========
+
+  ipcMain.handle('audit-log-get', async (_event, args?: { limit?: number }) => {
+    try {
+      const limit = typeof args?.limit === 'number' ? args.limit : 100;
+      const entries = auditLog.getEntries(limit);
+      const total = auditLog.getCount();
+      return { success: true, entries, total };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? 'failed to load audit log', entries: [], total: 0 };
+    }
+  });
+
+  ipcMain.handle('audit-log-verify', async () => {
+    const result = auditLog.verifyChain();
+    auditLog.logEvent('audit_verify', {
+      valid: result.valid,
+      total: result.totalEntries,
+      first_break: result.firstBreakSeq ?? null,
+    });
+    return result;
+  });
+
+  ipcMain.handle('audit-log-export', async () => {
+    return auditLog.exportJsonl();
+  });
+
+  ipcMain.handle('audit-log-event', async (_event, args: { eventType: string; data?: Record<string, any> }) => {
+    auditLog.logEvent(args.eventType, args.data || {});
+    return { success: true };
+  });
+
+  ipcMain.handle('audit-log-windows-get', async () => {
+    return auditLog.getWindowsEventLogState();
+  });
+
+  ipcMain.handle('audit-log-windows-set', async (_event, args: { enabled: boolean }) => {
+    return auditLog.setWindowsEventLogEnabled(Boolean(args.enabled));
   });
   
   // ========== Suspects ==========
@@ -4992,6 +5788,8 @@ ${data.content}
         partition: `persist:byoa_${id}`,
       },
     });
+    // Capture downloads from this BYOA partition into the routing pipeline
+    downloadCapture.attachDownloadInterceptor(`persist:byoa_${id}`, `BYOA (${id})`, () => mainWindow);
     mainWindow.addBrowserView(view);
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     view.setAutoResize({ width: false, height: false });
@@ -5750,6 +6548,263 @@ ${data.content}
       throw error;
     }
   });
+
+  // ═══════════════ Evidence v2 (Viper-style typed evidence) ═══════════════
+  // These handlers complement (not replace) the legacy ADD/GET/DELETE above.
+
+  /** Show a native file/folder picker and return the selected paths. */
+  ipcMain.handle('evidence-pick-files', async (_event, opts: { mode?: 'files' | 'folder' }) => {
+    try {
+      const mode = opts?.mode || 'files';
+      const props: any = mode === 'folder' ? ['openDirectory'] : ['openFile', 'multiSelections'];
+      const result = await dialog.showOpenDialog({ properties: props, title: mode === 'folder' ? 'Select Evidence Folder' : 'Select Evidence Files' });
+      if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true, paths: [] };
+      return { success: true, paths: result.filePaths };
+    } catch (e: any) {
+      return { success: false, error: e.message, paths: [] };
+    }
+  });
+
+  /**
+   * Save a new evidence row. Handles file copy (or reference-only) and inserts
+   * into the evidence table with the full typed-field schema.
+   * args: { caseId, caseNumber, type, tag, description, storageMode, sourcePaths,
+   *         meta?, category? }
+   */
+  ipcMain.handle('evidence-save', async (_event, args: {
+    caseId: number;
+    caseNumber: string;
+    type: string;
+    tag?: string | null;
+    description: string;
+    storageMode: 'copy' | 'reference';
+    sourcePaths: string[];
+    referenceFolder?: string;    // for reference mode, the single folder reference
+    meta?: any;
+    category?: string;
+    subdir?: string;             // optional: e.g. 'datapilot' for type=datapilot
+  }) => {
+    try {
+      const mgr = evidenceManager;
+      let result: import('./evidenceManager').CopyResult;
+
+      if (args.storageMode === 'reference') {
+        if (!args.referenceFolder) {
+          return { success: false, error: 'Reference mode requires a referenceFolder path' };
+        }
+        result = mgr.referenceFilesAsEvidence(args.referenceFolder);
+      } else {
+        if (!args.sourcePaths || args.sourcePaths.length === 0) {
+          // Allow creating an evidence row with no files (description-only)
+          result = { files: [], fileCount: 0, totalSize: 0, evidenceDir: '', evidenceDirRel: '' };
+        } else {
+          result = mgr.copyFilesToEvidence(
+            args.caseNumber,
+            args.tag || `evidence_${Date.now()}`,
+            args.sourcePaths,
+            args.subdir || null,
+          );
+        }
+      }
+
+      const payload = mgr.serializePayload({
+        type: args.type,
+        tag: args.tag || null,
+        description: args.description || '',
+        storage_mode: args.storageMode,
+        file_path: result.evidenceDirRel || '',
+        file_count: result.fileCount,
+        total_size: result.totalSize,
+        files: result.files,
+        meta: args.meta,
+        category: args.category,
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        args.caseId,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      const inserted = db.prepare(
+        'SELECT * FROM evidence WHERE case_id = ? ORDER BY id DESC LIMIT 1'
+      ).get(args.caseId);
+      saveDatabase();
+
+      auditLog.logEvent('evidence_created', {
+        case_id: args.caseId,
+        case_number: args.caseNumber,
+        type: payload.type,
+        tag: payload.tag,
+        file_count: payload.file_count,
+        storage_mode: payload.storage_mode,
+      });
+      return { success: true, evidence: inserted };
+    } catch (error: any) {
+      console.error('[evidence-save] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Update the editable metadata of an evidence row (type, tag, description,
+   * category). Does NOT move files — for that the user must delete + re-add.
+   */
+  ipcMain.handle('evidence-update', async (_event, args: {
+    id: number;
+    patch: { type?: string; tag?: string | null; description?: string; category?: string; meta?: any };
+  }) => {
+    try {
+      const fields: string[] = [];
+      const values: any[] = [];
+      const p = args.patch || {};
+      if (p.type !== undefined)        { fields.push('type = ?');        values.push(p.type); }
+      if (p.tag !== undefined)         { fields.push('tag = ?');         values.push(p.tag); }
+      if (p.description !== undefined) { fields.push('description = ?'); values.push(p.description); }
+      if (p.category !== undefined)    { fields.push('category = ?');    values.push(p.category); }
+      if (p.meta !== undefined)        { fields.push('meta_json = ?');   values.push(p.meta == null ? null : JSON.stringify(p.meta)); }
+      fields.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(args.id);
+
+      const sql = `UPDATE evidence SET ${fields.join(', ')} WHERE id = ?`;
+      db.prepare(sql).run(...values);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Delete an evidence row. If deleteFiles=true (default for Copy-mode rows),
+   * also removes the file/folder under cases/<num>/evidence/.
+   */
+  ipcMain.handle('evidence-delete', async (_event, args: { id: number; deleteFiles?: boolean }) => {
+    try {
+      const mgr = evidenceManager;
+      const row = db.prepare('SELECT id, case_id, file_path, storage_mode FROM evidence WHERE id = ?').get(args.id) as any;
+      if (!row) return { success: false, error: 'Evidence not found' };
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+
+      const shouldDelete = args.deleteFiles !== false && (row.storage_mode || 'copy') === 'copy' && row.file_path && caseRow;
+      if (shouldDelete) {
+        mgr.deleteEvidenceFiles(caseRow.case_number, row.file_path);
+      }
+
+      db.prepare('DELETE FROM evidence WHERE id = ?').run(args.id);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /** Open an evidence file in the OS default application. */
+  ipcMain.handle('evidence-open-file', async (_event, args: { id: number; relPath: string }) => {
+    try {
+      const row = db.prepare('SELECT case_id, storage_mode FROM evidence WHERE id = ?').get(args.id) as any;
+      if (!row) return { success: false, error: 'Evidence not found' };
+      const casesDir = getCasesPath();
+      const full = path.isAbsolute(args.relPath) ? args.relPath : path.join(casesDir, args.relPath);
+      if (!fs.existsSync(full)) return { success: false, error: 'File not found on disk' };
+      const result = await shell.openPath(full);
+      if (result) return { success: false, error: result };
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /** Reveal an evidence file/folder in Explorer/Finder. */
+  ipcMain.handle('evidence-reveal-folder', async (_event, args: { id: number; relPath?: string }) => {
+    try {
+      const row = db.prepare('SELECT case_id, file_path FROM evidence WHERE id = ?').get(args.id) as any;
+      if (!row) return { success: false, error: 'Evidence not found' };
+      const casesDir = getCasesPath();
+      const rel = args.relPath || row.file_path || '';
+      const full = path.isAbsolute(rel) ? rel : path.join(casesDir, rel);
+      if (!fs.existsSync(full)) return { success: false, error: 'Path not found' };
+      shell.showItemInFolder(full);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Read an evidence file's contents and return as a data URL (for image preview)
+   * or text (for HTML/text preview). Large files: return error instead of OOMing.
+   */
+  ipcMain.handle('evidence-read-file', async (_event, args: { id: number; relPath: string; asText?: boolean; maxBytes?: number }) => {
+    try {
+      const row = db.prepare('SELECT case_id FROM evidence WHERE id = ?').get(args.id) as any;
+      if (!row) return { success: false, error: 'Evidence not found' };
+      const casesDir = getCasesPath();
+      const full = path.isAbsolute(args.relPath) ? args.relPath : path.join(casesDir, args.relPath);
+      if (!fs.existsSync(full)) return { success: false, error: 'File not found on disk' };
+      const stat = fs.statSync(full);
+      const maxBytes = args.maxBytes ?? 50 * 1024 * 1024; // 50 MB default
+      if (stat.size > maxBytes) {
+        return { success: false, error: `File too large for inline preview (${(stat.size / 1024 / 1024).toFixed(1)} MB > ${(maxBytes / 1024 / 1024).toFixed(0)} MB). Use 'Open externally' instead.` };
+      }
+      const buf = fs.readFileSync(full);
+      const mgr = evidenceManager;
+      const mime = mgr.sniffMime(full);
+      if (args.asText) {
+        return { success: true, text: buf.toString('utf-8'), mimeType: mime, size: stat.size };
+      }
+      const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+      return { success: true, dataUrl, mimeType: mime, size: stat.size };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ end Evidence v2 ═══════════════
+
+  // ═══════════════ Datapilot scan ═══════════════
+  /**
+   * Scan a folder, detect Datapilot format (CSV or DPX), and return a preview
+   * (device info + counts). Throws via { success:false, error } on bad folder.
+   */
+  ipcMain.handle('datapilot-scan', async (_event, args: { folderPath: string }) => {
+    try {
+      const dp = datapilotParser;
+      const preview = await dp.scanFolder(args.folderPath);
+      return { success: true, preview };
+    } catch (error: any) {
+      console.error('[datapilot-scan] error:', error);
+      return { success: false, error: error?.message || String(error) };
+    }
+  });
+
+  /**
+   * Recursively scan a root directory for Datapilot folders (both formats).
+   * Returns an array of { folderPath, format } hits.
+   */
+  ipcMain.handle('datapilot-scan-root', async (_event, args: { rootPath: string; maxDepth?: number }) => {
+    try {
+      const dp = datapilotParser;
+      const hits = dp.scanForDatapilotFolders(args.rootPath, args.maxDepth ?? 6);
+      return { success: true, hits };
+    } catch (error: any) {
+      return { success: false, error: error?.message || String(error), hits: [] };
+    }
+  });
+  // ═══════════════ end Datapilot ═══════════════
 
   // Case Notes handlers
   ipcMain.handle(IPC_CHANNELS.GET_CASE_NOTES, async (_event, caseId: number) => {
@@ -7391,6 +8446,2344 @@ ${data.content}
       return { success: true, reports };
     } catch (error: any) {
       return { success: false, error: error.message, reports: [] };
+    }
+  });
+
+  // ═══════════════ Meta Warrant Parser (ported from VIPER) ═══════════════
+  //
+  // Pattern: users import warrant returns into Warrants (warrants.return_files_path)
+  // or Evidence (evidence.file_path). The Meta tab autodetects any ZIP at those
+  // paths that looks like a Meta production, then user picks which to parse.
+  // Parsed payloads are stored in warrant_return_imports with provider='meta'.
+  // Flagged records persist in warrant_return_flags so they can be pushed to
+  // Evidence and packaged as an HTML report for DA export.
+
+  /**
+   * Scan a case's existing Warrants + Evidence file paths and return any
+   * candidate Meta warrant ZIPs (already-imported but not yet parsed).
+   */
+  ipcMain.handle('meta-warrant-scan', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+
+      // Pull candidate file paths from warrants + evidence
+      const warrants = db.prepare(
+        'SELECT id, return_files_path, warrant_pdf_path, company_name FROM warrants WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const evidence = db.prepare(
+        'SELECT id, file_path, description FROM evidence WHERE case_id = ?'
+      ).all(caseId) as any[];
+
+      // Already-imported paths (don't re-suggest)
+      const importedRows = db.prepare(
+        'SELECT source_path FROM warrant_return_imports WHERE case_id = ? AND provider = ?'
+      ).all(caseId, 'meta') as any[];
+      const importedPaths = new Set(importedRows.map(r => (r.source_path || '').toLowerCase()));
+
+      const candidates: any[] = [];
+
+      const considerPath = (p: string | null | undefined, kind: 'warrant' | 'evidence', refId: number, hint?: string) => {
+        if (!p) return;
+        let norm = p.trim();
+        if (!norm) return;
+        if (!path.isAbsolute(norm)) norm = path.join(getCasesPath(), norm);
+        if (importedPaths.has(norm.toLowerCase())) return;
+
+        // If it's a directory, enumerate .zip children one level deep
+        try {
+          if (fs.existsSync(norm)) {
+            const stat = fs.statSync(norm);
+            if (stat.isDirectory()) {
+              for (const f of fs.readdirSync(norm)) {
+                const full = path.join(norm, f);
+                if (path.extname(full).toLowerCase() !== '.zip') continue;
+                if (importedPaths.has(full.toLowerCase())) continue;
+                if (MetaWarrantParser.isMetaWarrantFile(full)) {
+                  candidates.push({ filePath: full, sourceKind: kind, sourceRefId: refId, hint, size: fs.statSync(full).size });
+                }
+              }
+              return;
+            }
+            if (path.extname(norm).toLowerCase() === '.zip' && MetaWarrantParser.isMetaWarrantFile(norm)) {
+              candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: stat.size });
+            }
+          }
+        } catch (e: any) {
+          console.error('[meta-warrant-scan] consider path failed:', norm, e.message);
+        }
+      };
+
+      for (const w of warrants) {
+        considerPath(w.return_files_path, 'warrant', w.id, w.company_name);
+      }
+      for (const ev of evidence) {
+        considerPath(ev.file_path, 'evidence', ev.id, ev.description);
+      }
+
+      return { success: true, candidates };
+    } catch (error: any) {
+      console.error('[meta-warrant-scan] error:', error);
+      return { success: false, error: error.message, candidates: [] };
+    }
+  });
+
+  /**
+   * Open native file picker filtered for ZIPs. Returns selected path
+   * if it looks like a Meta production, otherwise an error.
+   */
+  ipcMain.handle('meta-warrant-pick-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select Meta Warrant Return ZIP',
+        filters: [
+          { name: 'Meta Warrant ZIP', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        properties: ['openFile']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+      }
+
+      const filePath = result.filePaths[0];
+      if (!MetaWarrantParser.isMetaWarrantFile(filePath)) {
+        return { success: false, error: 'File does not appear to be a Meta warrant production.' };
+      }
+      return { success: true, filePath };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Parse a Meta warrant ZIP from disk and persist it as a warrant_return_imports row.
+   * Returns the new import id + the parsed payload.
+   */
+  ipcMain.handle('meta-warrant-import', async (
+    _event,
+    args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }
+  ) => {
+    try {
+      const { caseId, filePath } = args;
+      if (!caseId || !filePath) return { success: false, error: 'caseId and filePath required' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found on disk' };
+
+      const buf = fs.readFileSync(filePath);
+      if (!MetaWarrantParser.isMetaWarrantZip(buf)) {
+        return { success: false, error: 'Not a recognizable Meta warrant ZIP' };
+      }
+
+      const parser = new MetaWarrantParser();
+      const parsed = await parser.parseZip(buf);
+
+      // Strip base64 from media before persisting — keep an index only.
+      // The original ZIP stays on disk and is re-read on demand for image previews.
+      const mediaIndex: Record<string, { size: number; mimeType: string; originalPath: string }> = {};
+      for (const [name, m] of Object.entries(parsed.mediaFiles)) {
+        mediaIndex[name] = { size: m.size, mimeType: m.mimeType, originalPath: m.originalPath };
+      }
+      const payload = { records: parsed.records };
+
+      // Derive a friendly label from the first record
+      const first = parsed.records[0];
+      const label = args.label
+        || (first?.accountId ? `${first.service} — ${first.accountId}`
+            : first?.title ? first.title
+            : path.basename(filePath));
+
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id, data_json, media_index_json, updated_at)
+        VALUES (?, 'meta', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `);
+      const result: any = stmt.run(
+        caseId,
+        label,
+        filePath,
+        args.sourceKind || 'picker',
+        args.sourceRefId ?? null,
+        JSON.stringify(payload),
+        JSON.stringify(mediaIndex),
+      );
+      saveDatabase();
+
+      const importId = result.lastInsertRowid ?? result.lastID ?? null;
+
+      return {
+        success: true,
+        importId,
+        label,
+        recordsCount: parsed.records.length,
+        mediaCount: Object.keys(mediaIndex).length,
+      };
+    } catch (error: any) {
+      console.error('[meta-warrant-import] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  /** List Meta imports for a case (header info only — no full payloads). */
+  ipcMain.handle('meta-warrant-list-imports', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT id, case_id, provider, label, source_path, source_kind, source_ref_id,
+               media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE case_id = ? AND provider = 'meta'
+        ORDER BY created_at DESC
+      `).all(caseId) as any[];
+      const imports = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        label: r.label,
+        sourcePath: r.source_path,
+        sourceKind: r.source_kind,
+        sourceRefId: r.source_ref_id,
+        mediaCount: (() => {
+          try { return Object.keys(JSON.parse(r.media_index_json || '{}')).length; }
+          catch { return 0; }
+        })(),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      return { success: true, imports };
+    } catch (error: any) {
+      return { success: false, error: error.message, imports: [] };
+    }
+  });
+
+  /** Load a single Meta import's full parsed payload. */
+  ipcMain.handle('meta-warrant-get-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, source_kind, source_ref_id,
+               data_json, media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'meta'
+      `).get(importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      return {
+        success: true,
+        import: {
+          id: row.id,
+          caseId: row.case_id,
+          label: row.label,
+          sourcePath: row.source_path,
+          sourceKind: row.source_kind,
+          sourceRefId: row.source_ref_id,
+          records: data.records || [],
+          mediaIndex,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /** Delete a Meta import (also cascades any associated flags). */
+  ipcMain.handle('meta-warrant-delete-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM warrant_return_flags WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM warrant_return_imports WHERE id = ?').run(importId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Read a single media file from the original ZIP on demand and return
+   * a data URL (avoids bloating the DB with base64). Image previews call this.
+   */
+  ipcMain.handle('meta-warrant-read-media', async (_event, args: { importId: number; fileName: string }) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(
+        'SELECT source_path, media_index_json FROM warrant_return_imports WHERE id = ?'
+      ).get(args.importId) as any;
+      if (!row || !row.source_path) return { success: false, error: 'Import not found' };
+      if (!fs.existsSync(row.source_path)) return { success: false, error: 'Source ZIP no longer on disk' };
+
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const entry = mediaIndex[args.fileName];
+      if (!entry) return { success: false, error: 'File not in media index' };
+
+      const zip = new AdmZip(row.source_path);
+      const zipEntry = zip.getEntry(entry.originalPath);
+      if (!zipEntry) return { success: false, error: 'File missing from ZIP' };
+      const buf = zipEntry.getData();
+      const dataUrl = `data:${entry.mimeType};base64,${buf.toString('base64')}`;
+      return { success: true, dataUrl, mimeType: entry.mimeType, size: buf.length };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * Build a self-contained HTML report (DA-ready) from a Meta import and
+   * register it as evidence. Mode: 'flagged-only' or 'full'.
+   */
+  ipcMain.handle('meta-warrant-export-bundle', async (
+    _event,
+    args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }
+  ) => {
+    try {
+      const mode = args.mode === 'full' ? 'full' : 'flagged-only';
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, data_json, media_index_json, created_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'meta'
+      `).get(args.importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      if (!row.source_path || !fs.existsSync(row.source_path)) {
+        return { success: false, error: 'Source ZIP no longer on disk — cannot embed media. Move/copy the ZIP back to its original path or re-import.' };
+      }
+
+      // Load case info
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+      if (!caseRow) return { success: false, error: 'Case not found' };
+      const caseNumber: string = caseRow.case_number;
+
+      // Load flags for this import
+      const flagRows = db.prepare(`
+        SELECT section, flag_key FROM warrant_return_flags
+        WHERE case_id = ? AND provider = 'meta' AND import_id = ?
+      `).all(row.case_id, args.importId) as any[];
+      const flagKeys = new Set<string>(flagRows.map(f => `${f.section}|${f.flag_key}`));
+
+      if (mode === 'flagged-only' && flagKeys.size === 0) {
+        return { success: false, error: 'No flagged items — cannot build a flagged-only bundle. Flag items first or choose Full mode.' };
+      }
+
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const zip = new AdmZip(row.source_path);
+
+      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const html = buildMetaWarrantReport({
+        caseNumber,
+        caseId: row.case_id,
+        officer: args.officer,
+        importLabel: row.label || path.basename(row.source_path),
+        importedAt: row.created_at,
+        generatedAt,
+        records: data.records || [],
+        mediaIndex,
+        flagKeys,
+        zip,
+        mode,
+      });
+
+      // Write to <casesDir>/<caseNumber>/evidence/meta_warrant_bundles/<safeLabel>/
+      const casesDir = getCasesPath();
+      const caseDir = path.join(casesDir, caseNumber);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeLabel = (row.label || 'meta_warrant').replace(/[^a-z0-9_-]+/gi, '_').substring(0, 60);
+      const modeTag = mode === 'flagged-only' ? 'FLAGGED' : 'FULL';
+      const fileName = `Meta_Warrant_${modeTag}_${stamp}.html`;
+
+      // Bundle subdir: each label gets its own folder (auto-unique on collision)
+      const mgr = evidenceManager;
+      const baseBundleDir = path.join(caseDir, 'evidence', 'meta_warrant_bundles');
+      if (!fs.existsSync(baseBundleDir)) fs.mkdirSync(baseBundleDir, { recursive: true });
+      const bundleDir = mgr.ensureUniqueFolder(baseBundleDir, `${safeLabel}_${modeTag}`);
+      if (!fs.existsSync(bundleDir)) fs.mkdirSync(bundleDir, { recursive: true });
+
+      const fullPath = path.join(bundleDir, fileName);
+      fs.writeFileSync(fullPath, html, 'utf-8');
+      const stat = fs.statSync(fullPath);
+
+      // Build typed evidence row using full v2 schema
+      const relBundleDir = path.relative(casesDir, bundleDir).replace(/\\/g, '/');
+      const relFile = path.relative(bundleDir, fullPath).replace(/\\/g, '/');
+
+      const tagValue = `${safeLabel}_${modeTag}_${stamp}`;
+      const desc = mode === 'flagged-only'
+        ? `Meta Warrant Bundle (Flagged-Only) — ${flagKeys.size} flagged item${flagKeys.size !== 1 ? 's' : ''} — ${row.label}`
+        : `Meta Warrant Bundle (Full Production) — ${row.label}`;
+
+      const filesArr = [{
+        name: fileName,
+        relPath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        size: stat.size,
+        mimeType: 'text/html',
+      }];
+
+      const metaObj = {
+        provider: 'meta',
+        importId: args.importId,
+        mode,
+        flaggedCount: flagKeys.size,
+        importLabel: row.label,
+        sourceZip: row.source_path,
+        generatedAt,
+        officer: args.officer || null,
+      };
+
+      const payload = mgr.serializePayload({
+        type: 'meta_warrant',
+        tag: tagValue,
+        description: desc,
+        storage_mode: 'copy',
+        file_path: relBundleDir,
+        file_count: 1,
+        total_size: stat.size,
+        files: filesArr,
+        meta: metaObj,
+        category: 'Reports',
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        row.case_id,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      return {
+        success: true,
+        filePath: fullPath,
+        relativePath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        flaggedCount: flagKeys.size,
+        mode,
+      };
+    } catch (error: any) {
+      console.error('[meta-warrant-export-bundle] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ Google Warrant Parser IPC (mirrors Meta — provider='google') ═══════════════
+
+  ipcMain.handle('google-warrant-scan', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const warrants = db.prepare(
+        'SELECT id, return_files_path, warrant_pdf_path, company_name FROM warrants WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const evidence = db.prepare(
+        'SELECT id, file_path, description FROM evidence WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const importedRows = db.prepare(
+        'SELECT source_path FROM warrant_return_imports WHERE case_id = ? AND provider = ?'
+      ).all(caseId, 'google') as any[];
+      const importedPaths = new Set(importedRows.map(r => (r.source_path || '').toLowerCase()));
+      const candidates: any[] = [];
+
+      const considerPath = (p: string | null | undefined, kind: 'warrant' | 'evidence', refId: number, hint?: string) => {
+        if (!p) return;
+        let norm = p.trim();
+        if (!norm) return;
+        if (!path.isAbsolute(norm)) norm = path.join(getCasesPath(), norm);
+        if (importedPaths.has(norm.toLowerCase())) return;
+        try {
+          if (!fs.existsSync(norm)) return;
+          const stat = fs.statSync(norm);
+          if (stat.isDirectory()) {
+            for (const f of fs.readdirSync(norm)) {
+              const full = path.join(norm, f);
+              if (path.extname(full).toLowerCase() !== '.zip') continue;
+              if (importedPaths.has(full.toLowerCase())) continue;
+              if (GoogleWarrantParser.isGoogleWarrantFile(full)) {
+                candidates.push({ filePath: full, sourceKind: kind, sourceRefId: refId, hint, size: fs.statSync(full).size });
+              }
+            }
+            return;
+          }
+          if (path.extname(norm).toLowerCase() === '.zip' && GoogleWarrantParser.isGoogleWarrantFile(norm)) {
+            candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: stat.size });
+          }
+        } catch (e: any) {
+          console.error('[google-warrant-scan] consider path failed:', norm, e.message);
+        }
+      };
+
+      for (const w of warrants) considerPath(w.return_files_path, 'warrant', w.id, w.company_name);
+      for (const ev of evidence) considerPath(ev.file_path, 'evidence', ev.id, ev.description);
+
+      return { success: true, candidates };
+    } catch (error: any) {
+      console.error('[google-warrant-scan] error:', error);
+      return { success: false, error: error.message, candidates: [] };
+    }
+  });
+
+  ipcMain.handle('google-warrant-pick-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select Google Warrant Return ZIP',
+        filters: [
+          { name: 'Google Warrant ZIP', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      if (!GoogleWarrantParser.isGoogleWarrantFile(filePath)) {
+        return { success: false, error: 'File does not appear to be a Google warrant production.' };
+      }
+      return { success: true, filePath };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('google-warrant-import', async (
+    _event,
+    args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }
+  ) => {
+    try {
+      const { caseId, filePath } = args;
+      if (!caseId || !filePath) return { success: false, error: 'caseId and filePath required' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found on disk' };
+
+      const buf = fs.readFileSync(filePath);
+      if (!GoogleWarrantParser.isGoogleWarrantZip(buf)) {
+        return { success: false, error: 'Not a recognizable Google warrant ZIP' };
+      }
+
+      const parser = new GoogleWarrantParser();
+      const parsed = await parser.parseZip(buf);
+
+      // Strip base64 from media before persisting — keep an index only.
+      const mediaIndex: Record<string, { size: number; mimeType: string; originalPath: string }> = {};
+      for (const [name, m] of Object.entries(parsed.mediaFiles)) {
+        mediaIndex[name] = { size: m.size, mimeType: m.mimeType, originalPath: m.originalPath };
+      }
+      // Strip _isFile binary data shadows out of driveFiles before serialization (no base64 was ever stored).
+      const payload = { records: parsed.records };
+
+      const first = parsed.records[0];
+      const label = args.label
+        || (first?.accountEmail ? `Google — ${first.accountEmail}`
+            : first?.accountId  ? `Google — ${first.accountId}`
+            : path.basename(filePath));
+
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id, data_json, media_index_json, updated_at)
+        VALUES (?, 'google', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `);
+      const result: any = stmt.run(
+        caseId,
+        label,
+        filePath,
+        args.sourceKind || 'picker',
+        args.sourceRefId ?? null,
+        JSON.stringify(payload),
+        JSON.stringify(mediaIndex),
+      );
+      saveDatabase();
+      const importId = result.lastInsertRowid ?? result.lastID ?? null;
+
+      // Summary counts for the toast
+      const rec = first || {} as any;
+      const summary = {
+        categories: (rec.categories || []).length,
+        emails: (rec.emails || []).length,
+        locations: (rec.locationRecords || []).length,
+        devices: (rec.devices || []).length,
+        installs: (rec.installs || []).length,
+        driveFiles: (rec.driveFiles || []).length,
+      };
+
+      return {
+        success: true,
+        importId,
+        label,
+        recordsCount: parsed.records.length,
+        mediaCount: Object.keys(mediaIndex).length,
+        summary,
+      };
+    } catch (error: any) {
+      console.error('[google-warrant-import] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('google-warrant-list-imports', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT id, case_id, provider, label, source_path, source_kind, source_ref_id,
+               media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE case_id = ? AND provider = 'google'
+        ORDER BY created_at DESC
+      `).all(caseId) as any[];
+      const imports = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        label: r.label,
+        sourcePath: r.source_path,
+        sourceKind: r.source_kind,
+        sourceRefId: r.source_ref_id,
+        mediaCount: (() => {
+          try { return Object.keys(JSON.parse(r.media_index_json || '{}')).length; }
+          catch { return 0; }
+        })(),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      return { success: true, imports };
+    } catch (error: any) {
+      return { success: false, error: error.message, imports: [] };
+    }
+  });
+
+  ipcMain.handle('google-warrant-get-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, source_kind, source_ref_id,
+               data_json, media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'google'
+      `).get(importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      return {
+        success: true,
+        import: {
+          id: row.id,
+          caseId: row.case_id,
+          label: row.label,
+          sourcePath: row.source_path,
+          sourceKind: row.source_kind,
+          sourceRefId: row.source_ref_id,
+          records: data.records || [],
+          mediaIndex,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        },
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('google-warrant-delete-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM warrant_return_flags WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM warrant_return_imports WHERE id = ?').run(importId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('google-warrant-read-media', async (_event, args: { importId: number; fileName: string }) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(
+        'SELECT source_path, media_index_json FROM warrant_return_imports WHERE id = ?'
+      ).get(args.importId) as any;
+      if (!row || !row.source_path) return { success: false, error: 'Import not found' };
+      if (!fs.existsSync(row.source_path)) return { success: false, error: 'Source ZIP no longer on disk' };
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const entry = mediaIndex[args.fileName];
+      if (!entry) return { success: false, error: 'File not in media index' };
+
+      // Google media may live in an inner zip — open outer first, then walk
+      const outerZip = new AdmZip(row.source_path);
+      // Try directly in outer zip first
+      const direct = outerZip.getEntry(entry.originalPath);
+      if (direct) {
+        const buf = direct.getData();
+        return {
+          success: true,
+          dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+          mimeType: entry.mimeType,
+          size: buf.length,
+        };
+      }
+      // Otherwise: scan each inner zip for the originalPath
+      for (const oe of outerZip.getEntries()) {
+        if (!oe.entryName.toLowerCase().endsWith('.zip')) continue;
+        try {
+          const innerZip = new AdmZip(oe.getData());
+          const innerEntry = innerZip.getEntry(entry.originalPath);
+          if (innerEntry) {
+            const buf = innerEntry.getData();
+            return {
+              success: true,
+              dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+              mimeType: entry.mimeType,
+              size: buf.length,
+            };
+          }
+        } catch { /* skip bad inner zip */ }
+      }
+      return { success: false, error: 'File missing from ZIP' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('google-warrant-export-bundle', async (
+    _event,
+    args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }
+  ) => {
+    try {
+      const mode = args.mode === 'full' ? 'full' : 'flagged-only';
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, data_json, media_index_json, created_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'google'
+      `).get(args.importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      if (!row.source_path || !fs.existsSync(row.source_path)) {
+        return { success: false, error: 'Source ZIP no longer on disk — cannot embed Drive media. Move/copy the ZIP back to its original path or re-import.' };
+      }
+
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+      if (!caseRow) return { success: false, error: 'Case not found' };
+      const caseNumber: string = caseRow.case_number;
+
+      const flagRows = db.prepare(`
+        SELECT section, flag_key FROM warrant_return_flags
+        WHERE case_id = ? AND provider = 'google' AND import_id = ?
+      `).all(row.case_id, args.importId) as any[];
+      const flagKeys = new Set<string>(flagRows.map(f => `${f.section}|${f.flag_key}`));
+
+      if (mode === 'flagged-only' && flagKeys.size === 0) {
+        return { success: false, error: 'No flagged items — cannot build a flagged-only bundle. Flag items first or choose Full mode.' };
+      }
+
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const record = (data.records && data.records[0]) || null;
+      if (!record) return { success: false, error: 'No parsed record in import' };
+
+      const zip = new AdmZip(row.source_path);
+
+      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const html = buildGoogleWarrantReport({
+        caseNumber,
+        caseId: row.case_id,
+        officer: args.officer,
+        importLabel: row.label || path.basename(row.source_path),
+        importedAt: row.created_at,
+        generatedAt,
+        record,
+        mediaIndex,
+        flagKeys,
+        zip,
+        mode,
+      });
+
+      const casesDir = getCasesPath();
+      const caseDir = path.join(casesDir, caseNumber);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeLabel = (row.label || 'google_warrant').replace(/[^a-z0-9_-]+/gi, '_').substring(0, 60);
+      const modeTag = mode === 'flagged-only' ? 'FLAGGED' : 'FULL';
+      const fileName = `Google_Warrant_${modeTag}_${stamp}.html`;
+
+      const mgr = evidenceManager;
+      const baseBundleDir = path.join(caseDir, 'evidence', 'google_warrant_bundles');
+      if (!fs.existsSync(baseBundleDir)) fs.mkdirSync(baseBundleDir, { recursive: true });
+      const bundleDir = mgr.ensureUniqueFolder(baseBundleDir, `${safeLabel}_${modeTag}`);
+      if (!fs.existsSync(bundleDir)) fs.mkdirSync(bundleDir, { recursive: true });
+
+      const fullPath = path.join(bundleDir, fileName);
+      fs.writeFileSync(fullPath, html, 'utf-8');
+      const stat = fs.statSync(fullPath);
+
+      const relBundleDir = path.relative(casesDir, bundleDir).replace(/\\/g, '/');
+      const relFile = path.relative(bundleDir, fullPath).replace(/\\/g, '/');
+
+      const tagValue = `${safeLabel}_${modeTag}_${stamp}`;
+      const desc = mode === 'flagged-only'
+        ? `Google Warrant Bundle (Flagged-Only) — ${flagKeys.size} flagged item${flagKeys.size !== 1 ? 's' : ''} — ${row.label}`
+        : `Google Warrant Bundle (Full Production) — ${row.label}`;
+
+      const filesArr = [{
+        name: fileName,
+        relPath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        size: stat.size,
+        mimeType: 'text/html',
+      }];
+
+      const metaObj = {
+        provider: 'google',
+        importId: args.importId,
+        mode,
+        flaggedCount: flagKeys.size,
+        importLabel: row.label,
+        sourceZip: row.source_path,
+        generatedAt,
+        officer: args.officer || null,
+      };
+
+      const payload = mgr.serializePayload({
+        type: 'google_warrant',
+        tag: tagValue,
+        description: desc,
+        storage_mode: 'copy',
+        file_path: relBundleDir,
+        file_count: 1,
+        total_size: stat.size,
+        files: filesArr,
+        meta: metaObj,
+        category: 'Reports',
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        row.case_id,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      return {
+        success: true,
+        filePath: fullPath,
+        relativePath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        flaggedCount: flagKeys.size,
+        mode,
+      };
+    } catch (error: any) {
+      console.error('[google-warrant-export-bundle] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ Kik Warrant Parser IPC (mirrors Meta/Google — provider='kik') ═══════════════
+
+  ipcMain.handle('kik-warrant-scan', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const warrants = db.prepare(
+        'SELECT id, return_files_path, warrant_pdf_path, company_name FROM warrants WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const evidence = db.prepare(
+        'SELECT id, file_path, description FROM evidence WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const importedRows = db.prepare(
+        'SELECT source_path FROM warrant_return_imports WHERE case_id = ? AND provider = ?'
+      ).all(caseId, 'kik') as any[];
+      const importedPaths = new Set(importedRows.map(r => (r.source_path || '').toLowerCase()));
+      const candidates: any[] = [];
+
+      const considerPath = (p: string | null | undefined, kind: 'warrant' | 'evidence', refId: number, hint?: string) => {
+        if (!p) return;
+        let norm = p.trim();
+        if (!norm) return;
+        if (!path.isAbsolute(norm)) norm = path.join(getCasesPath(), norm);
+        if (importedPaths.has(norm.toLowerCase())) return;
+        try {
+          if (!fs.existsSync(norm)) return;
+          const stat = fs.statSync(norm);
+          if (stat.isDirectory()) {
+            for (const f of fs.readdirSync(norm)) {
+              const full = path.join(norm, f);
+              if (path.extname(full).toLowerCase() !== '.zip') continue;
+              if (importedPaths.has(full.toLowerCase())) continue;
+              if (KikWarrantParser.isKikWarrantFile(full)) {
+                candidates.push({ filePath: full, sourceKind: kind, sourceRefId: refId, hint, size: fs.statSync(full).size });
+              }
+            }
+            return;
+          }
+          if (path.extname(norm).toLowerCase() === '.zip' && KikWarrantParser.isKikWarrantFile(norm)) {
+            candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: stat.size });
+          }
+        } catch (e: any) {
+          console.error('[kik-warrant-scan] consider path failed:', norm, e.message);
+        }
+      };
+
+      for (const w of warrants) considerPath(w.return_files_path, 'warrant', w.id, w.company_name);
+      for (const ev of evidence) considerPath(ev.file_path, 'evidence', ev.id, ev.description);
+
+      return { success: true, candidates };
+    } catch (error: any) {
+      console.error('[kik-warrant-scan] error:', error);
+      return { success: false, error: error.message, candidates: [] };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-pick-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select Kik Warrant Return ZIP',
+        filters: [
+          { name: 'Kik Warrant ZIP', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      if (!KikWarrantParser.isKikWarrantFile(filePath)) {
+        return { success: false, error: 'File does not appear to be a Kik warrant production.' };
+      }
+      return { success: true, filePath };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-import', async (
+    _event,
+    args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }
+  ) => {
+    try {
+      const { caseId, filePath } = args;
+      if (!caseId || !filePath) return { success: false, error: 'caseId and filePath required' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found on disk' };
+
+      const buf = fs.readFileSync(filePath);
+      if (!KikWarrantParser.isKikWarrantZip(buf)) {
+        return { success: false, error: 'Not a recognizable Kik warrant ZIP' };
+      }
+
+      const parser = new KikWarrantParser();
+      const parsed = await parser.parseZip(buf);
+
+      const mediaIndex: Record<string, { size: number; mimeType: string; originalPath: string }> = {};
+      for (const [name, m] of Object.entries(parsed.mediaFiles)) {
+        mediaIndex[name] = { size: m.size, mimeType: m.mimeType, originalPath: m.originalPath };
+      }
+      const payload = { records: parsed.records };
+
+      const first = parsed.records[0];
+      const label = args.label
+        || (first?.accountUsername ? `Kik — ${first.accountUsername}`
+            : path.basename(filePath));
+
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id, data_json, media_index_json, updated_at)
+        VALUES (?, 'kik', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `);
+      const result: any = stmt.run(
+        caseId,
+        label,
+        filePath,
+        args.sourceKind || 'picker',
+        args.sourceRefId ?? null,
+        JSON.stringify(payload),
+        JSON.stringify(mediaIndex),
+      );
+      saveDatabase();
+      const importId = result.lastInsertRowid ?? result.lastID ?? null;
+
+      const rec = first || ({} as any);
+      const summary = {
+        totalRecords: rec.stats?.totalRecords ?? 0,
+        uniqueContacts: rec.stats?.uniqueContacts ?? 0,
+        uniqueGroups: rec.stats?.uniqueGroups ?? 0,
+        uniqueIps: rec.stats?.uniqueIps ?? 0,
+        contentFiles: rec.stats?.counts?.contentFiles ?? 0,
+        binds: rec.binds?.length ?? 0,
+        friends: rec.friends?.length ?? 0,
+      };
+
+      return {
+        success: true,
+        importId,
+        label,
+        recordsCount: parsed.records.length,
+        mediaCount: Object.keys(mediaIndex).length,
+        summary,
+      };
+    } catch (error: any) {
+      console.error('[kik-warrant-import] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-list-imports', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT id, case_id, provider, label, source_path, source_kind, source_ref_id,
+               media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE case_id = ? AND provider = 'kik'
+        ORDER BY created_at DESC
+      `).all(caseId) as any[];
+      const imports = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        label: r.label,
+        sourcePath: r.source_path,
+        sourceKind: r.source_kind,
+        sourceRefId: r.source_ref_id,
+        mediaCount: (() => {
+          try { return Object.keys(JSON.parse(r.media_index_json || '{}')).length; }
+          catch { return 0; }
+        })(),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      return { success: true, imports };
+    } catch (error: any) {
+      return { success: false, error: error.message, imports: [] };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-get-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, source_kind, source_ref_id,
+               data_json, media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'kik'
+      `).get(importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      return {
+        success: true,
+        import: {
+          id: row.id,
+          caseId: row.case_id,
+          label: row.label,
+          sourcePath: row.source_path,
+          sourceKind: row.source_kind,
+          sourceRefId: row.source_ref_id,
+          records: data.records || [],
+          mediaIndex,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        },
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-delete-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM warrant_return_flags WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM warrant_return_imports WHERE id = ?').run(importId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-read-media', async (_event, args: { importId: number; fileName: string }) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(
+        'SELECT source_path, media_index_json FROM warrant_return_imports WHERE id = ?'
+      ).get(args.importId) as any;
+      if (!row || !row.source_path) return { success: false, error: 'Import not found' };
+      if (!fs.existsSync(row.source_path)) return { success: false, error: 'Source ZIP no longer on disk' };
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const entry = mediaIndex[args.fileName];
+      if (!entry) return { success: false, error: 'File not in media index' };
+
+      // Kik media may live in an inner zip — open outer first, then walk
+      const outerZip = new AdmZip(row.source_path);
+      const direct = outerZip.getEntry(entry.originalPath);
+      if (direct) {
+        const buf = direct.getData();
+        return {
+          success: true,
+          dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+          mimeType: entry.mimeType,
+          size: buf.length,
+        };
+      }
+      for (const oe of outerZip.getEntries()) {
+        if (!oe.entryName.toLowerCase().endsWith('.zip')) continue;
+        try {
+          const innerZip = new AdmZip(oe.getData());
+          const innerEntry = innerZip.getEntry(entry.originalPath);
+          if (innerEntry) {
+            const buf = innerEntry.getData();
+            return {
+              success: true,
+              dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+              mimeType: entry.mimeType,
+              size: buf.length,
+            };
+          }
+        } catch { /* skip bad inner zip */ }
+      }
+      return { success: false, error: 'File missing from ZIP' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('kik-warrant-export-bundle', async (
+    _event,
+    args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }
+  ) => {
+    try {
+      const mode = args.mode === 'full' ? 'full' : 'flagged-only';
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, data_json, media_index_json, created_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'kik'
+      `).get(args.importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      if (!row.source_path || !fs.existsSync(row.source_path)) {
+        return { success: false, error: 'Source ZIP no longer on disk — cannot embed media. Move/copy the ZIP back to its original path or re-import.' };
+      }
+
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+      if (!caseRow) return { success: false, error: 'Case not found' };
+      const caseNumber: string = caseRow.case_number;
+
+      const flagRows = db.prepare(`
+        SELECT section, flag_key FROM warrant_return_flags
+        WHERE case_id = ? AND provider = 'kik' AND import_id = ?
+      `).all(row.case_id, args.importId) as any[];
+      const flagKeys = new Set<string>(flagRows.map(f => `${f.section}|${f.flag_key}`));
+
+      if (mode === 'flagged-only' && flagKeys.size === 0) {
+        return { success: false, error: 'No flagged items — cannot build a flagged-only bundle. Flag items first or choose Full mode.' };
+      }
+
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const record = (data.records && data.records[0]) || null;
+      if (!record) return { success: false, error: 'No parsed record in import' };
+
+      const zip = new AdmZip(row.source_path);
+
+      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const html = buildKikWarrantReport({
+        caseNumber,
+        caseId: row.case_id,
+        officer: args.officer,
+        importLabel: row.label || path.basename(row.source_path),
+        importedAt: row.created_at,
+        generatedAt,
+        record,
+        mediaIndex,
+        flagKeys,
+        zip,
+        mode,
+      });
+
+      const casesDir = getCasesPath();
+      const caseDir = path.join(casesDir, caseNumber);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeLabel = (row.label || 'kik_warrant').replace(/[^a-z0-9_-]+/gi, '_').substring(0, 60);
+      const modeTag = mode === 'flagged-only' ? 'FLAGGED' : 'FULL';
+      const fileName = `Kik_Warrant_${modeTag}_${stamp}.html`;
+
+      const mgr = evidenceManager;
+      const baseBundleDir = path.join(caseDir, 'evidence', 'kik_warrant_bundles');
+      if (!fs.existsSync(baseBundleDir)) fs.mkdirSync(baseBundleDir, { recursive: true });
+      const bundleDir = mgr.ensureUniqueFolder(baseBundleDir, `${safeLabel}_${modeTag}`);
+      if (!fs.existsSync(bundleDir)) fs.mkdirSync(bundleDir, { recursive: true });
+
+      const fullPath = path.join(bundleDir, fileName);
+      fs.writeFileSync(fullPath, html, 'utf-8');
+      const stat = fs.statSync(fullPath);
+
+      const relBundleDir = path.relative(casesDir, bundleDir).replace(/\\/g, '/');
+      const relFile = path.relative(bundleDir, fullPath).replace(/\\/g, '/');
+
+      const tagValue = `${safeLabel}_${modeTag}_${stamp}`;
+      const desc = mode === 'flagged-only'
+        ? `Kik Warrant Bundle (Flagged-Only) — ${flagKeys.size} flagged item${flagKeys.size !== 1 ? 's' : ''} — ${row.label}`
+        : `Kik Warrant Bundle (Full Production) — ${row.label}`;
+
+      const filesArr = [{
+        name: fileName,
+        relPath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        size: stat.size,
+        mimeType: 'text/html',
+      }];
+
+      const metaObj = {
+        provider: 'kik',
+        importId: args.importId,
+        mode,
+        flaggedCount: flagKeys.size,
+        importLabel: row.label,
+        sourceZip: row.source_path,
+        generatedAt,
+        officer: args.officer || null,
+      };
+
+      const payload = mgr.serializePayload({
+        type: 'kik_warrant',
+        tag: tagValue,
+        description: desc,
+        storage_mode: 'copy',
+        file_path: relBundleDir,
+        file_count: 1,
+        total_size: stat.size,
+        files: filesArr,
+        meta: metaObj,
+        category: 'Reports',
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        row.case_id,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      return {
+        success: true,
+        filePath: fullPath,
+        relativePath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        flaggedCount: flagKeys.size,
+        mode,
+      };
+    } catch (error: any) {
+      console.error('[kik-warrant-export-bundle] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ Snapchat Warrant Parser IPC (provider='snap') ═══════════════
+
+  ipcMain.handle('snap-warrant-scan', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const warrants = db.prepare(
+        'SELECT id, return_files_path, warrant_pdf_path, company_name FROM warrants WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const evidence = db.prepare(
+        'SELECT id, file_path, description FROM evidence WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const importedRows = db.prepare(
+        'SELECT source_path FROM warrant_return_imports WHERE case_id = ? AND provider = ?'
+      ).all(caseId, 'snap') as any[];
+      const importedPaths = new Set(importedRows.map(r => (r.source_path || '').toLowerCase()));
+      const candidates: any[] = [];
+
+      const considerPath = (p: string | null | undefined, kind: 'warrant' | 'evidence', refId: number, hint?: string) => {
+        if (!p) return;
+        let norm = p.trim();
+        if (!norm) return;
+        if (!path.isAbsolute(norm)) norm = path.join(getCasesPath(), norm);
+        if (importedPaths.has(norm.toLowerCase())) return;
+        try {
+          if (!fs.existsSync(norm)) return;
+          const stat = fs.statSync(norm);
+          if (stat.isDirectory()) {
+            // Top-level dir: check if it itself looks like a snap production folder
+            if (SnapWarrantParser.isSnapchatWarrantFolder(norm)) {
+              candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: 0, isFolder: true });
+              return;
+            }
+            // Or contains ZIPs
+            for (const f of fs.readdirSync(norm)) {
+              const full = path.join(norm, f);
+              if (path.extname(full).toLowerCase() !== '.zip') continue;
+              if (importedPaths.has(full.toLowerCase())) continue;
+              try {
+                if (SnapWarrantParser.isSnapchatWarrantFile(full)) {
+                  candidates.push({ filePath: full, sourceKind: kind, sourceRefId: refId, hint, size: fs.statSync(full).size });
+                }
+              } catch { /* skip */ }
+            }
+            return;
+          }
+          if (path.extname(norm).toLowerCase() === '.zip' && SnapWarrantParser.isSnapchatWarrantFile(norm)) {
+            candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: stat.size });
+          }
+        } catch (e: any) {
+          console.error('[snap-warrant-scan] consider path failed:', norm, e.message);
+        }
+      };
+
+      for (const w of warrants) considerPath(w.return_files_path, 'warrant', w.id, w.company_name);
+      for (const ev of evidence) considerPath(ev.file_path, 'evidence', ev.id, ev.description);
+
+      return { success: true, candidates };
+    } catch (error: any) {
+      console.error('[snap-warrant-scan] error:', error);
+      return { success: false, error: error.message, candidates: [] };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-pick-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select Snapchat Warrant Return ZIP or Folder',
+        filters: [
+          { name: 'Snapchat Warrant ZIP', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'openDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        if (!SnapWarrantParser.isSnapchatWarrantFolder(filePath)) {
+          return { success: false, error: 'Folder does not appear to be a Snapchat warrant production.' };
+        }
+      } else {
+        if (!SnapWarrantParser.isSnapchatWarrantFile(filePath)) {
+          return { success: false, error: 'File does not appear to be a Snapchat warrant production.' };
+        }
+      }
+      return { success: true, filePath, isFolder: stat.isDirectory() };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-import', async (
+    _event,
+    args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }
+  ) => {
+    try {
+      const { caseId, filePath } = args;
+      if (!caseId || !filePath) return { success: false, error: 'caseId and filePath required' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found on disk' };
+
+      const stat = fs.statSync(filePath);
+      const isFolder = stat.isDirectory();
+      const parser = new SnapWarrantParser();
+      let parsed: Awaited<ReturnType<SnapWarrantParser['parseZip']>>;
+
+      if (isFolder) {
+        if (!SnapWarrantParser.isSnapchatWarrantFolder(filePath)) {
+          return { success: false, error: 'Not a recognizable Snapchat warrant folder' };
+        }
+        parsed = await parser.parseFolder(filePath);
+      } else {
+        const buf = fs.readFileSync(filePath);
+        if (!SnapWarrantParser.isSnapchatWarrantZip(buf)) {
+          return { success: false, error: 'Not a recognizable Snapchat warrant ZIP' };
+        }
+        parsed = await parser.parseZip(buf);
+      }
+
+      const mediaIndex: Record<string, { size: number; mimeType: string; originalPath: string }> = {};
+      for (const [name, m] of Object.entries(parsed.mediaFiles)) {
+        mediaIndex[name] = { size: m.size, mimeType: m.mimeType, originalPath: m.originalPath || name };
+      }
+      const payload = { result: parsed };
+
+      const label = args.label
+        || (parsed.mergedHeader?.targetUsername ? `Snapchat — ${parsed.mergedHeader.targetUsername}`
+            : path.basename(filePath));
+
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id, data_json, media_index_json, updated_at)
+        VALUES (?, 'snap', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `);
+      const result: any = stmt.run(
+        caseId,
+        label,
+        filePath,
+        args.sourceKind || 'picker',
+        args.sourceRefId ?? null,
+        JSON.stringify(payload),
+        JSON.stringify(mediaIndex),
+      );
+      saveDatabase();
+      const importId = result.lastInsertRowid ?? result.lastID ?? null;
+
+      const summary = {
+        partCount: parsed.stats?.partCount ?? 0,
+        conversationCount: parsed.stats?.conversationCount ?? 0,
+        geoLocationCount: parsed.stats?.geoLocationCount ?? 0,
+        memoryCount: parsed.stats?.memoryCount ?? 0,
+        mediaCount: parsed.stats?.mediaCount ?? 0,
+        loginCount: parsed.loginHistory?.length ?? 0,
+        friendCount: parsed.friends?.length ?? 0,
+      };
+
+      return {
+        success: true,
+        importId,
+        label,
+        recordsCount: 1,
+        mediaCount: Object.keys(mediaIndex).length,
+        summary,
+      };
+    } catch (error: any) {
+      console.error('[snap-warrant-import] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-list-imports', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT id, case_id, provider, label, source_path, source_kind, source_ref_id,
+               media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE case_id = ? AND provider = 'snap'
+        ORDER BY created_at DESC
+      `).all(caseId) as any[];
+      const imports = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        label: r.label,
+        sourcePath: r.source_path,
+        sourceKind: r.source_kind,
+        sourceRefId: r.source_ref_id,
+        mediaCount: (() => {
+          try { return Object.keys(JSON.parse(r.media_index_json || '{}')).length; }
+          catch { return 0; }
+        })(),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      return { success: true, imports };
+    } catch (error: any) {
+      return { success: false, error: error.message, imports: [] };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-get-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, source_kind, source_ref_id,
+               data_json, media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'snap'
+      `).get(importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      return {
+        success: true,
+        import: {
+          id: row.id,
+          caseId: row.case_id,
+          label: row.label,
+          sourcePath: row.source_path,
+          sourceKind: row.source_kind,
+          sourceRefId: row.source_ref_id,
+          result: data.result || null,
+          mediaIndex,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        },
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-delete-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM warrant_return_flags WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM warrant_return_imports WHERE id = ?').run(importId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-read-media', async (_event, args: { importId: number; fileName: string }) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(
+        'SELECT source_path, media_index_json FROM warrant_return_imports WHERE id = ?'
+      ).get(args.importId) as any;
+      if (!row || !row.source_path) return { success: false, error: 'Import not found' };
+      if (!fs.existsSync(row.source_path)) return { success: false, error: 'Source no longer on disk' };
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const entry = mediaIndex[args.fileName];
+      if (!entry) return { success: false, error: 'File not in media index' };
+
+      const srcStat = fs.statSync(row.source_path);
+      // Folder import: try direct path under source folder
+      if (srcStat.isDirectory()) {
+        const candidates: string[] = [];
+        // entry.originalPath may be a relative path inside the part folder
+        candidates.push(path.join(row.source_path, entry.originalPath));
+        candidates.push(path.join(row.source_path, args.fileName));
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) {
+            const buf = fs.readFileSync(candidate);
+            return {
+              success: true,
+              dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+              mimeType: entry.mimeType,
+              size: buf.length,
+            };
+          }
+        }
+        // Recursive fallback — scan dir for the basename
+        const wanted = args.fileName.toLowerCase();
+        const walk = (dir: string): string | null => {
+          let stack = [dir];
+          while (stack.length) {
+            const d = stack.pop()!;
+            let items: fs.Dirent[] = [];
+            try { items = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+            for (const it of items) {
+              const full = path.join(d, it.name);
+              if (it.isFile() && it.name.toLowerCase() === wanted) return full;
+              if (it.isDirectory()) stack.push(full);
+            }
+          }
+          return null;
+        };
+        const found = walk(row.source_path);
+        if (found) {
+          const buf = fs.readFileSync(found);
+          return {
+            success: true,
+            dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+            mimeType: entry.mimeType,
+            size: buf.length,
+          };
+        }
+        return { success: false, error: 'File missing from folder' };
+      }
+
+      // ZIP import
+      const zip = new AdmZip(row.source_path);
+      const direct = zip.getEntry(entry.originalPath);
+      if (direct) {
+        const buf = direct.getData();
+        return {
+          success: true,
+          dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+          mimeType: entry.mimeType,
+          size: buf.length,
+        };
+      }
+      // Fallback: search by basename
+      for (const ze of zip.getEntries()) {
+        if (path.basename(ze.entryName).toLowerCase() === args.fileName.toLowerCase()) {
+          const buf = ze.getData();
+          return {
+            success: true,
+            dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+            mimeType: entry.mimeType,
+            size: buf.length,
+          };
+        }
+      }
+      return { success: false, error: 'File missing from ZIP' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('snap-warrant-export-bundle', async (
+    _event,
+    args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }
+  ) => {
+    try {
+      const mode = args.mode === 'full' ? 'full' : 'flagged-only';
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, data_json, media_index_json, created_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'snap'
+      `).get(args.importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      if (!row.source_path || !fs.existsSync(row.source_path)) {
+        return { success: false, error: 'Source no longer on disk — cannot embed media. Move/copy the source back to its original path or re-import.' };
+      }
+
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+      if (!caseRow) return { success: false, error: 'Case not found' };
+      const caseNumber: string = caseRow.case_number;
+
+      const flagRows = db.prepare(`
+        SELECT section, flag_key FROM warrant_return_flags
+        WHERE case_id = ? AND provider = 'snap' AND import_id = ?
+      `).all(row.case_id, args.importId) as any[];
+      const flagKeys = new Set<string>(flagRows.map(f => `${f.section}|${f.flag_key}`));
+
+      if (mode === 'flagged-only' && flagKeys.size === 0) {
+        return { success: false, error: 'No flagged items — cannot build a flagged-only bundle. Flag items first or choose Full mode.' };
+      }
+
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const record = data.result || null;
+      if (!record) return { success: false, error: 'No parsed record in import' };
+
+      // For HTML report, we need a zip for media embedding. If source is a folder,
+      // we build a minimal in-memory AdmZip with media files for embedding.
+      const srcStat = fs.statSync(row.source_path);
+      let zip: AdmZip;
+      if (srcStat.isDirectory()) {
+        zip = new AdmZip();
+        for (const [fname, info] of Object.entries(mediaIndex)) {
+          const inf = info as { originalPath: string };
+          const guesses = [
+            path.join(row.source_path, inf.originalPath),
+            path.join(row.source_path, fname),
+          ];
+          for (const g of guesses) {
+            if (fs.existsSync(g)) {
+              try { zip.addLocalFile(g, '', inf.originalPath); break; }
+              catch { /* ignore */ }
+            }
+          }
+        }
+      } else {
+        zip = new AdmZip(row.source_path);
+      }
+
+      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const html = buildSnapWarrantReport({
+        caseNumber,
+        caseId: row.case_id,
+        officer: args.officer,
+        importLabel: row.label || path.basename(row.source_path),
+        importedAt: row.created_at,
+        generatedAt,
+        record,
+        mediaIndex,
+        flagKeys,
+        zip,
+        mode,
+      });
+
+      const casesDir = getCasesPath();
+      const caseDir = path.join(casesDir, caseNumber);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeLabel = (row.label || 'snap_warrant').replace(/[^a-z0-9_-]+/gi, '_').substring(0, 60);
+      const modeTag = mode === 'flagged-only' ? 'FLAGGED' : 'FULL';
+      const fileName = `Snap_Warrant_${modeTag}_${stamp}.html`;
+
+      const mgr = evidenceManager;
+      const baseBundleDir = path.join(caseDir, 'evidence', 'snap_warrant_bundles');
+      if (!fs.existsSync(baseBundleDir)) fs.mkdirSync(baseBundleDir, { recursive: true });
+      const bundleDir = mgr.ensureUniqueFolder(baseBundleDir, `${safeLabel}_${modeTag}`);
+      if (!fs.existsSync(bundleDir)) fs.mkdirSync(bundleDir, { recursive: true });
+
+      const fullPath = path.join(bundleDir, fileName);
+      fs.writeFileSync(fullPath, html, 'utf-8');
+      const stat = fs.statSync(fullPath);
+
+      const relBundleDir = path.relative(casesDir, bundleDir).replace(/\\/g, '/');
+      const relFile = path.relative(bundleDir, fullPath).replace(/\\/g, '/');
+
+      const tagValue = `${safeLabel}_${modeTag}_${stamp}`;
+      const desc = mode === 'flagged-only'
+        ? `Snapchat Warrant Bundle (Flagged-Only) — ${flagKeys.size} flagged item${flagKeys.size !== 1 ? 's' : ''} — ${row.label}`
+        : `Snapchat Warrant Bundle (Full Production) — ${row.label}`;
+
+      const filesArr = [{
+        name: fileName,
+        relPath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        size: stat.size,
+        mimeType: 'text/html',
+      }];
+
+      const metaObj = {
+        provider: 'snap',
+        importId: args.importId,
+        mode,
+        flaggedCount: flagKeys.size,
+        importLabel: row.label,
+        sourcePath: row.source_path,
+        generatedAt,
+        officer: args.officer || null,
+      };
+
+      const payload = mgr.serializePayload({
+        type: 'snap_warrant',
+        tag: tagValue,
+        description: desc,
+        storage_mode: 'copy',
+        file_path: relBundleDir,
+        file_count: 1,
+        total_size: stat.size,
+        files: filesArr,
+        meta: metaObj,
+        category: 'Reports',
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        row.case_id,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      return {
+        success: true,
+        filePath: fullPath,
+        relativePath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        flaggedCount: flagKeys.size,
+        mode,
+      };
+    } catch (error: any) {
+      console.error('[snap-warrant-export-bundle] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Discord Warrant Return — IPC handlers
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('discord-warrant-scan', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const warrants = db.prepare(
+        'SELECT id, return_files_path, warrant_pdf_path, company_name FROM warrants WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const evidence = db.prepare(
+        'SELECT id, file_path, description FROM evidence WHERE case_id = ?'
+      ).all(caseId) as any[];
+      const importedRows = db.prepare(
+        'SELECT source_path FROM warrant_return_imports WHERE case_id = ? AND provider = ?'
+      ).all(caseId, 'discord') as any[];
+      const importedPaths = new Set(importedRows.map(r => (r.source_path || '').toLowerCase()));
+      const candidates: any[] = [];
+
+      console.log('[discord-warrant-scan] case', caseId,
+        '| warrants:', warrants.length,
+        '| evidence:', evidence.length,
+        '| casesRoot:', getCasesPath());
+
+      const considerPath = (p: string | null | undefined, kind: 'warrant' | 'evidence', refId: number, hint?: string) => {
+        if (!p) { console.log('[discord-scan]', kind, refId, '→ skip (empty path)'); return; }
+        let norm = p.trim();
+        if (!norm) return;
+        const rawWasAbsolute = path.isAbsolute(norm);
+        if (!rawWasAbsolute) norm = path.join(getCasesPath(), norm);
+        console.log('[discord-scan]', kind, refId, 'raw:', p, '| resolved:', norm, '| existed:', fs.existsSync(norm));
+        if (importedPaths.has(norm.toLowerCase())) { console.log('  └─ already imported, skip'); return; }
+        try {
+          if (!fs.existsSync(norm)) return;
+          const stat = fs.statSync(norm);
+          if (stat.isDirectory()) {
+            const isFolder = DiscordWarrantParser.isDiscordWarrantFolder(norm);
+            console.log('  └─ dir → isDiscordWarrantFolder:', isFolder);
+            if (isFolder) {
+              candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: 0, isFolder: true });
+              return;
+            }
+            const children = fs.readdirSync(norm);
+            console.log('  └─ scanning children:', children);
+            for (const f of children) {
+              const full = path.join(norm, f);
+              if (path.extname(full).toLowerCase() !== '.zip') continue;
+              if (importedPaths.has(full.toLowerCase())) continue;
+              try {
+                const ok = DiscordWarrantParser.isDiscordWarrantFile(full);
+                console.log('     ·', f, '→ isDiscordWarrantFile:', ok);
+                if (ok) {
+                  candidates.push({ filePath: full, sourceKind: kind, sourceRefId: refId, hint, size: fs.statSync(full).size });
+                }
+              } catch (e: any) { console.error('     · zip check failed:', f, e.message); }
+            }
+            return;
+          }
+          if (path.extname(norm).toLowerCase() === '.zip') {
+            const ok = DiscordWarrantParser.isDiscordWarrantFile(norm);
+            console.log('  └─ file → isDiscordWarrantFile:', ok);
+            if (ok) {
+              candidates.push({ filePath: norm, sourceKind: kind, sourceRefId: refId, hint, size: stat.size });
+            }
+          }
+        } catch (e: any) {
+          console.error('[discord-warrant-scan] consider path failed:', norm, e.message);
+        }
+      };
+
+      for (const w of warrants) considerPath(w.return_files_path, 'warrant', w.id, w.company_name);
+      for (const ev of evidence) considerPath(ev.file_path, 'evidence', ev.id, ev.description);
+
+      console.log('[discord-warrant-scan] returning', candidates.length, 'candidates');
+      return { success: true, candidates };
+    } catch (error: any) {
+      console.error('[discord-warrant-scan] error:', error);
+      return { success: false, error: error.message, candidates: [] };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-pick-file', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Select Discord Warrant Return ZIP or Folder',
+        filters: [
+          { name: 'Discord Warrant ZIP', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        properties: ['openFile', 'openDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        if (!DiscordWarrantParser.isDiscordWarrantFolder(filePath)) {
+          return { success: false, error: 'Folder does not appear to be a Discord Data Package.' };
+        }
+      } else {
+        if (!DiscordWarrantParser.isDiscordWarrantFile(filePath)) {
+          return { success: false, error: 'File does not appear to be a Discord Data Package.' };
+        }
+      }
+      return { success: true, filePath, isFolder: stat.isDirectory() };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-import', async (
+    _event,
+    args: { caseId: number; filePath: string; sourceKind?: string; sourceRefId?: number | null; label?: string }
+  ) => {
+    try {
+      const { caseId, filePath } = args;
+      if (!caseId || !filePath) return { success: false, error: 'caseId and filePath required' };
+      if (!fs.existsSync(filePath)) return { success: false, error: 'File not found on disk' };
+
+      const stat = fs.statSync(filePath);
+      const isFolder = stat.isDirectory();
+      const parser = new DiscordWarrantParser();
+      let parsed: Awaited<ReturnType<DiscordWarrantParser['parseZip']>>;
+
+      if (isFolder) {
+        if (!DiscordWarrantParser.isDiscordWarrantFolder(filePath)) {
+          return { success: false, error: 'Not a recognizable Discord Data Package folder' };
+        }
+        parsed = await parser.parseFolder(filePath);
+      } else {
+        const buf = fs.readFileSync(filePath);
+        if (!DiscordWarrantParser.isDiscordWarrantZip(buf)) {
+          return { success: false, error: 'Not a recognizable Discord Data Package ZIP' };
+        }
+        parsed = await parser.parseZip(buf);
+      }
+
+      const mediaIndex: Record<string, { size: number; mimeType: string; originalPath: string; kind?: string }> = {};
+      for (const [name, m] of Object.entries(parsed.contentFiles || {})) {
+        mediaIndex[name] = {
+          size: m.size,
+          mimeType: m.mimeType,
+          originalPath: m.originalPath || m.original || name,
+          kind: m.kind,
+        };
+      }
+      const payload = { result: parsed };
+
+      const sub = parsed.subscriber;
+      const label = args.label
+        || (sub?.username ? `Discord — ${sub.username}${sub.discriminator ? `#${sub.discriminator}` : ''}`
+            : path.basename(filePath));
+
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO warrant_return_imports
+          (case_id, provider, label, source_path, source_kind, source_ref_id, data_json, media_index_json, updated_at)
+        VALUES (?, 'discord', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `);
+      const result: any = stmt.run(
+        caseId,
+        label,
+        filePath,
+        args.sourceKind || 'picker',
+        args.sourceRefId ?? null,
+        JSON.stringify(payload),
+        JSON.stringify(mediaIndex),
+      );
+      saveDatabase();
+      const importId = result.lastInsertRowid ?? result.lastID ?? null;
+
+      const summary = {
+        messageCount: parsed.stats?.messageCount ?? 0,
+        channelCount: parsed.stats?.channelCount ?? 0,
+        serverCount: parsed.stats?.serverCount ?? 0,
+        sessionCount: parsed.stats?.sessionCount ?? 0,
+        ipCount: parsed.stats?.ipCount ?? 0,
+        deviceCount: parsed.stats?.deviceCount ?? 0,
+        eventCount: parsed.stats?.eventCount ?? 0,
+        mediaCount: parsed.stats?.mediaCount ?? 0,
+      };
+
+      return {
+        success: true,
+        importId,
+        label,
+        recordsCount: 1,
+        mediaCount: Object.keys(mediaIndex).length,
+        summary,
+      };
+    } catch (error: any) {
+      console.error('[discord-warrant-import] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-list-imports', async (_event, caseId: number) => {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT id, case_id, provider, label, source_path, source_kind, source_ref_id,
+               media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE case_id = ? AND provider = 'discord'
+        ORDER BY created_at DESC
+      `).all(caseId) as any[];
+      const imports = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        label: r.label,
+        sourcePath: r.source_path,
+        sourceKind: r.source_kind,
+        sourceRefId: r.source_ref_id,
+        mediaCount: (() => {
+          try { return Object.keys(JSON.parse(r.media_index_json || '{}')).length; }
+          catch { return 0; }
+        })(),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+      return { success: true, imports };
+    } catch (error: any) {
+      return { success: false, error: error.message, imports: [] };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-get-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, source_kind, source_ref_id,
+               data_json, media_index_json, created_at, updated_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'discord'
+      `).get(importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+      const data = JSON.parse(row.data_json || '{}');
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      return {
+        success: true,
+        import: {
+          id: row.id,
+          caseId: row.case_id,
+          label: row.label,
+          sourcePath: row.source_path,
+          sourceKind: row.source_kind,
+          sourceRefId: row.source_ref_id,
+          result: data.result || null,
+          mediaIndex,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        },
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-delete-import', async (_event, importId: number) => {
+    try {
+      const db = getDatabase();
+      db.prepare('DELETE FROM warrant_return_flags WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM warrant_return_imports WHERE id = ?').run(importId);
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-read-media', async (_event, args: { importId: number; fileName: string }) => {
+    try {
+      const db = getDatabase();
+      const row = db.prepare(
+        'SELECT source_path, media_index_json FROM warrant_return_imports WHERE id = ?'
+      ).get(args.importId) as any;
+      if (!row || !row.source_path) return { success: false, error: 'Import not found' };
+      if (!fs.existsSync(row.source_path)) return { success: false, error: 'Source no longer on disk' };
+      const mediaIndex = JSON.parse(row.media_index_json || '{}');
+      const entry = mediaIndex[args.fileName];
+      if (!entry) return { success: false, error: 'File not in media index' };
+
+      const srcStat = fs.statSync(row.source_path);
+      if (srcStat.isDirectory()) {
+        const candidates: string[] = [
+          path.join(row.source_path, entry.originalPath),
+          path.join(row.source_path, args.fileName),
+        ];
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) {
+            const buf = fs.readFileSync(candidate);
+            return {
+              success: true,
+              dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+              mimeType: entry.mimeType,
+              size: buf.length,
+            };
+          }
+        }
+        // Recursive fallback — scan for basename
+        const wanted = args.fileName.replace(/^recent_/, '').toLowerCase();
+        const walk = (dir: string): string | null => {
+          let stack = [dir];
+          while (stack.length) {
+            const d = stack.pop()!;
+            let items: fs.Dirent[] = [];
+            try { items = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+            for (const it of items) {
+              const full = path.join(d, it.name);
+              if (it.isFile() && it.name.toLowerCase() === wanted) return full;
+              if (it.isDirectory()) stack.push(full);
+            }
+          }
+          return null;
+        };
+        const found = walk(row.source_path);
+        if (found) {
+          const buf = fs.readFileSync(found);
+          return {
+            success: true,
+            dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+            mimeType: entry.mimeType,
+            size: buf.length,
+          };
+        }
+        return { success: false, error: 'File missing from folder' };
+      }
+
+      // ZIP import
+      const zip = new AdmZip(row.source_path);
+      const direct = zip.getEntry(entry.originalPath);
+      if (direct) {
+        const buf = direct.getData();
+        return {
+          success: true,
+          dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+          mimeType: entry.mimeType,
+          size: buf.length,
+        };
+      }
+      const wanted = args.fileName.replace(/^recent_/, '').toLowerCase();
+      for (const ze of zip.getEntries()) {
+        if (path.basename(ze.entryName).toLowerCase() === wanted) {
+          const buf = ze.getData();
+          return {
+            success: true,
+            dataUrl: `data:${entry.mimeType};base64,${buf.toString('base64')}`,
+            mimeType: entry.mimeType,
+            size: buf.length,
+          };
+        }
+      }
+      return { success: false, error: 'File missing from ZIP' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('discord-warrant-export-bundle', async (
+    _event,
+    args: { importId: number; mode?: 'flagged-only' | 'full'; officer?: string }
+  ) => {
+    try {
+      const mode = args.mode === 'full' ? 'full' : 'flagged-only';
+      const db = getDatabase();
+      const row = db.prepare(`
+        SELECT id, case_id, label, source_path, data_json, media_index_json, created_at
+        FROM warrant_return_imports
+        WHERE id = ? AND provider = 'discord'
+      `).get(args.importId) as any;
+      if (!row) return { success: false, error: 'Import not found' };
+
+      const caseRow = db.prepare('SELECT case_number FROM cases WHERE id = ?').get(row.case_id) as any;
+      if (!caseRow) return { success: false, error: 'Case not found' };
+      const caseNumber: string = caseRow.case_number;
+
+      const flagRows = db.prepare(`
+        SELECT section, flag_key FROM warrant_return_flags
+        WHERE case_id = ? AND provider = 'discord' AND import_id = ?
+      `).all(row.case_id, args.importId) as any[];
+      const flagKeys = new Set<string>(flagRows.map(f => `${f.section}|${f.flag_key}`));
+
+      if (mode === 'flagged-only' && flagKeys.size === 0) {
+        return { success: false, error: 'No flagged items — cannot build a flagged-only bundle. Flag items first or choose Full mode.' };
+      }
+
+      const data = JSON.parse(row.data_json || '{}');
+      const record = data.result || null;
+      if (!record) return { success: false, error: 'No parsed record in import' };
+
+      const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+      const html = buildDiscordWarrantReport({
+        caseNumber,
+        caseId: row.case_id,
+        officer: args.officer,
+        importLabel: row.label || path.basename(row.source_path),
+        importedAt: row.created_at,
+        generatedAt,
+        record,
+        flagKeys,
+        mode,
+      });
+
+      const casesDir = getCasesPath();
+      const caseDir = path.join(casesDir, caseNumber);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const safeLabel = (row.label || 'discord_warrant').replace(/[^a-z0-9_-]+/gi, '_').substring(0, 60);
+      const modeTag = mode === 'flagged-only' ? 'FLAGGED' : 'FULL';
+      const fileName = `Discord_Warrant_${modeTag}_${stamp}.html`;
+
+      const mgr = evidenceManager;
+      const baseBundleDir = path.join(caseDir, 'evidence', 'discord_warrant_bundles');
+      if (!fs.existsSync(baseBundleDir)) fs.mkdirSync(baseBundleDir, { recursive: true });
+      const bundleDir = mgr.ensureUniqueFolder(baseBundleDir, `${safeLabel}_${modeTag}`);
+      if (!fs.existsSync(bundleDir)) fs.mkdirSync(bundleDir, { recursive: true });
+
+      const fullPath = path.join(bundleDir, fileName);
+      fs.writeFileSync(fullPath, html, 'utf-8');
+      const stat = fs.statSync(fullPath);
+
+      const relBundleDir = path.relative(casesDir, bundleDir).replace(/\\/g, '/');
+      const relFile = path.relative(bundleDir, fullPath).replace(/\\/g, '/');
+
+      const tagValue = `${safeLabel}_${modeTag}_${stamp}`;
+      const desc = mode === 'flagged-only'
+        ? `Discord Warrant Bundle (Flagged-Only) — ${flagKeys.size} flagged item${flagKeys.size !== 1 ? 's' : ''} — ${row.label}`
+        : `Discord Warrant Bundle (Full Production) — ${row.label}`;
+
+      const filesArr = [{
+        name: fileName,
+        relPath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        size: stat.size,
+        mimeType: 'text/html',
+      }];
+
+      const metaObj = {
+        provider: 'discord',
+        importId: args.importId,
+        mode,
+        flaggedCount: flagKeys.size,
+        importLabel: row.label,
+        sourcePath: row.source_path,
+        generatedAt,
+        officer: args.officer || null,
+      };
+
+      const payload = mgr.serializePayload({
+        type: 'discord_warrant',
+        tag: tagValue,
+        description: desc,
+        storage_mode: 'copy',
+        file_path: relBundleDir,
+        file_count: 1,
+        total_size: stat.size,
+        files: filesArr,
+        meta: metaObj,
+        category: 'Reports',
+      });
+
+      const insertStmt = db.prepare(`
+        INSERT INTO evidence (
+          case_id, description, file_path, category,
+          type, tag, storage_mode, file_count, total_size, files_json, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertStmt.run(
+        row.case_id,
+        payload.description,
+        payload.file_path,
+        payload.category,
+        payload.type,
+        payload.tag,
+        payload.storage_mode,
+        payload.file_count,
+        payload.total_size,
+        payload.files_json,
+        payload.meta_json,
+      );
+      saveDatabase();
+
+      return {
+        success: true,
+        filePath: fullPath,
+        relativePath: path.join(relBundleDir, relFile).replace(/\\/g, '/'),
+        flaggedCount: flagKeys.size,
+        mode,
+      };
+    } catch (error: any) {
+      console.error('[discord-warrant-export-bundle] error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ═══════════════ Warrant Return Flags (shared by all providers) ═══════════════
+
+  /** Toggle a flag on a specific record. Returns the new state. */
+  ipcMain.handle('warrant-flag-toggle', async (
+    _event,
+    args: { caseId: number; provider: string; importId?: number | null; section: string; flagKey: string; notes?: string }
+  ) => {
+    try {
+      const { caseId, provider, importId, section, flagKey, notes } = args;
+      const db = getDatabase();
+      const existing = db.prepare(
+        'SELECT id FROM warrant_return_flags WHERE case_id = ? AND provider = ? AND flag_key = ?'
+      ).get(caseId, provider, flagKey) as any;
+      if (existing) {
+        db.prepare('DELETE FROM warrant_return_flags WHERE id = ?').run(existing.id);
+        saveDatabase();
+        return { success: true, flagged: false };
+      } else {
+        db.prepare(`
+          INSERT INTO warrant_return_flags (case_id, provider, import_id, section, flag_key, notes)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(caseId, provider, importId ?? null, section, flagKey, notes || null);
+        saveDatabase();
+        return { success: true, flagged: true };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  /** List all flags for a case + provider (optionally filtered to a single import). */
+  ipcMain.handle('warrant-flag-list', async (
+    _event,
+    args: { caseId: number; provider: string; importId?: number | null }
+  ) => {
+    try {
+      const db = getDatabase();
+      const { caseId, provider, importId } = args;
+      const rows = importId
+        ? db.prepare(`
+            SELECT id, case_id, provider, import_id, section, flag_key, notes, created_at
+            FROM warrant_return_flags
+            WHERE case_id = ? AND provider = ? AND import_id = ?
+            ORDER BY created_at ASC
+          `).all(caseId, provider, importId) as any[]
+        : db.prepare(`
+            SELECT id, case_id, provider, import_id, section, flag_key, notes, created_at
+            FROM warrant_return_flags
+            WHERE case_id = ? AND provider = ?
+            ORDER BY created_at ASC
+          `).all(caseId, provider) as any[];
+      const flags = rows.map(r => ({
+        id: r.id,
+        caseId: r.case_id,
+        provider: r.provider,
+        importId: r.import_id,
+        section: r.section,
+        flagKey: r.flag_key,
+        notes: r.notes,
+        createdAt: r.created_at,
+      }));
+      return { success: true, flags };
+    } catch (error: any) {
+      return { success: false, error: error.message, flags: [] };
+    }
+  });
+
+  /** Clear all flags for a case + provider (used when "Clear Flags" pressed). */
+  ipcMain.handle('warrant-flag-clear', async (
+    _event,
+    args: { caseId: number; provider: string; importId?: number | null }
+  ) => {
+    try {
+      const db = getDatabase();
+      const { caseId, provider, importId } = args;
+      if (importId) {
+        db.prepare('DELETE FROM warrant_return_flags WHERE case_id = ? AND provider = ? AND import_id = ?')
+          .run(caseId, provider, importId);
+      } else {
+        db.prepare('DELETE FROM warrant_return_flags WHERE case_id = ? AND provider = ?')
+          .run(caseId, provider);
+      }
+      saveDatabase();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
     }
   });
 

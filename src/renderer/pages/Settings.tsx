@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Logo } from '../components/Logo';
 import { useLicense } from '../lib/LicenseContext';
+import AuditLogPanel from '../components/AuditLogPanel';
 
 export function Settings() {
   const { status: licenseStatus, activate, checkUpdate, appVersion } = useLicense();
@@ -16,6 +17,9 @@ export function Settings() {
   const [casesPath, setCasesPath] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [mediaEnabled, setMediaEnabled] = useState(() => localStorage.getItem('mediaPlayerEnabled') === 'true');
+  // UC Chat Operations — opt-out toggle. Default ON for existing installs.
+  // Unset OR any non-'false' value counts as enabled.
+  const [ucChatEnabled, setUcChatEnabled] = useState(() => localStorage.getItem('ucChatEnabled') !== 'false');
   const [showLicense, setShowLicense] = useState(false);
   const [showMigrationDialog, setShowMigrationDialog] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState<any>(null);
@@ -620,7 +624,7 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
 
   return (
     <div className="p-8 bg-background min-h-screen">
-      <div className="max-w-4xl mx-auto">
+      <div className="w-full max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-text-primary mb-2">Settings</h1>
@@ -1152,6 +1156,51 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
               >
                 <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
                   mediaEnabled ? 'translate-x-8' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          {/* ═══════════════ UC Chat Operations ═══════════════ */}
+          <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
+            <h2 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
+              <svg className="w-6 h-6" style={{ color: '#a78bfa' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              UC Chat Operations
+            </h2>
+            <p className="text-text-muted text-sm mb-4">
+              Undercover chat workspace with personas, photo library, multi-platform browser views (Discord, Telegram, Instagram, WhatsApp, Snapchat, Messenger, MeetMe, Sniffies), and HTML/PDF capture. Agencies that don't conduct chat operations can disable this to hide the floating button in the bottom-right corner.
+            </p>
+            <div className="flex items-center justify-between bg-background rounded-lg p-4 border border-accent-cyan/20">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center"
+                     style={{ background: 'rgba(124,58,237,0.12)' }}>
+                  <span className="text-2xl">💬</span>
+                </div>
+                <div>
+                  <p className="text-text-primary font-medium">
+                    {ucChatEnabled ? 'Enabled' : 'Disabled'}
+                  </p>
+                  <p className="text-text-muted text-xs">
+                    Toggle to show/hide the UC Chat Operations FAB and alert toasts.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const next = !ucChatEnabled;
+                  localStorage.setItem('ucChatEnabled', String(next));
+                  setUcChatEnabled(next);
+                  window.dispatchEvent(new Event('ucChatToggle'));
+                }}
+                className={`relative w-14 h-7 rounded-full transition-colors ${
+                  ucChatEnabled ? 'bg-accent-cyan' : 'bg-gray-600'
+                }`}
+              >
+                <div className={`absolute w-5 h-5 bg-white rounded-full top-1 transition-transform ${
+                  ucChatEnabled ? 'translate-x-8' : 'translate-x-1'
                 }`} />
               </button>
             </div>
@@ -3081,6 +3130,9 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
               </div>
             </div>
           </div>
+
+          {/* ═══════════════ Audit Log ═══════════════ */}
+          <AuditLogPanel />
         </div>
       </div>
     </div>
