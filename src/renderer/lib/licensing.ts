@@ -234,7 +234,32 @@ export async function validateLicense(): Promise<{ valid: boolean; message: stri
   }
 }
 
-/** Check for updates — calls GET /api/updates/{slug}/latest */
+/**
+ * Compare two semver-like versions ("a.b.c"). Returns 1 if a > b, -1 if a < b, 0 if equal.
+ * Tolerates a leading "v" and missing minor/patch segments.
+ */
+function compareVersions(a: string, b: string): number {
+  const norm = (s: string) => s.replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  const [aMaj = 0, aMin = 0, aPatch = 0] = norm(a);
+  const [bMaj = 0, bMin = 0, bPatch = 0] = norm(b);
+  if (aMaj !== bMaj) return aMaj > bMaj ? 1 : -1;
+  if (aMin !== bMin) return aMin > bMin ? 1 : -1;
+  if (aPatch !== bPatch) return aPatch > bPatch ? 1 : -1;
+  return 0;
+}
+
+/**
+ * Check for updates via the GitHub Releases API.
+ *
+ * Replaces the legacy Intellect Dashboard endpoint as of v2.3.1. GitHub
+ * Releases gives us unlimited asset size, free hosting, and no server to
+ * maintain. The release must include an asset whose name matches
+ * `ICAC.P.U.L.S.E-<version>-Setup.exe` (GitHub auto-substitutes spaces
+ * with dots in the browser_download_url, which matches our installer's
+ * upload filename `ICAC P.U.L.S.E-<version>-Setup.exe`).
+ */
+const GITHUB_REPO = 'exhonorated999/icac-pulse';
+
 export async function checkForUpdate(currentVersion: string): Promise<{
   available: boolean;
   latestVersion?: string;
@@ -243,15 +268,32 @@ export async function checkForUpdate(currentVersion: string): Promise<{
 }> {
   try {
     const res = await fetch(
-      `${API_BASE}/api/updates/${PRODUCT_SLUG}/latest?current_version=${encodeURIComponent(currentVersion)}`
+      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+      { headers: { Accept: 'application/vnd.github+json' } }
     );
     if (!res.ok) return { available: false };
     const body = await res.json();
+
+    // Strip leading "v" from "v2.3.1" → "2.3.1"
+    const latest = String(body.tag_name || '').replace(/^v/i, '');
+    if (!latest) return { available: false };
+
+    const available = compareVersions(latest, currentVersion) > 0;
+    if (!available) {
+      return { available: false, latestVersion: latest };
+    }
+
+    // Find the NSIS installer asset (browser_download_url has dots for spaces).
+    const assets: Array<{ name: string; browser_download_url: string }> = body.assets || [];
+    const installer = assets.find(a =>
+      /ICAC[. ]P[. ]?U[. ]?L[. ]?S[. ]?E-.*-Setup\.exe$/i.test(a.name)
+    ) || assets.find(a => /-Setup\.exe$/i.test(a.name));
+
     return {
-      available: body.update_available,
-      latestVersion: body.latest_version,
-      downloadUrl: body.download_url ? `${API_BASE}${body.download_url}` : undefined,
-      changelog: body.changelog,
+      available: true,
+      latestVersion: latest,
+      downloadUrl: installer?.browser_download_url,
+      changelog: body.body || '',
     };
   } catch {
     return { available: false };
