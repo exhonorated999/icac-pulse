@@ -5,6 +5,7 @@ import { SuspectTab } from '../components/SuspectTab';
 import { OpPlanTab } from '../components/OpPlanTab';
 import { ReportTab } from '../components/ReportTab';
 import ProsecutionTab from '../components/ProsecutionTab';
+import CaseCustomMetrics from '../components/CaseCustomMetrics';
 import { EvidenceTab } from '../components/EvidenceTab';
 import { EmailVerifier } from '../components/EmailVerifier';
 import { CDRTab } from '../components/CDRTab';
@@ -2861,6 +2862,9 @@ export function CaseDetail() {
                 )}
               </div>
             )}
+
+            {/* Custom Metrics (user-defined; see Settings → Custom Metrics) */}
+            <CaseCustomMetrics caseId={caseData.id} />
           </div>
         )}
 

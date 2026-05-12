@@ -3134,7 +3134,47 @@ For questions about this export, contact the investigating officer.
       }
       
       const stats = fs.statSync(sourcePath);
-      
+
+      // ── ZIP support ─────────────────────────────────────────────
+      // If the source is a .zip, extract to a temp dir and copy the
+      // extracted folder into the case directory. This lets warrant returns
+      // and evidence accept zipped bundles transparently — same code path,
+      // same parsers (datapilot / discord / google warrant parsers all
+      // already operate on directory trees).
+      const isZip = stats.isFile() && /\.zip$/i.test(sourcePath);
+      if (isZip) {
+        const AdmZip = require('adm-zip');
+        const os = require('os');
+        const baseName = path.basename(sourcePath, path.extname(sourcePath))
+          .replace(/[<>:"/\\|?*]/g, '_');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'icac-zip-'));
+        const extractDir = path.join(tempDir, baseName || 'extracted');
+        fs.mkdirSync(extractDir, { recursive: true });
+        try {
+          const zip = new AdmZip(sourcePath);
+          zip.extractAllTo(extractDir, /*overwrite*/ true);
+        } catch (err: any) {
+          throw new Error(`Failed to extract ZIP: ${err?.message || err}`);
+        }
+        const relativePath = fileManager.copyFolderToCase(
+          extractDir,
+          caseNumber,
+          category,
+          filename || baseName,
+          (progress: any) => {
+            event.sender.send('upload-progress', {
+              current: progress.current,
+              total: progress.total,
+              currentFile: progress.currentFile,
+              percentage: Math.round((progress.current / progress.total) * 100),
+            });
+          },
+        );
+        // Best-effort cleanup; not fatal if it fails (temp gets reaped by OS).
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+        return { relativePath, success: true, extractedFromZip: true };
+      }
+
       let relativePath;
       if (stats.isDirectory()) {
         // safeLog('Source is a directory, using copyFolderToCase');
@@ -6557,7 +6597,15 @@ ${data.content}
     try {
       const mode = opts?.mode || 'files';
       const props: any = mode === 'folder' ? ['openDirectory'] : ['openFile', 'multiSelections'];
-      const result = await dialog.showOpenDialog({ properties: props, title: mode === 'folder' ? 'Select Evidence Folder' : 'Select Evidence Files' });
+      const result = await dialog.showOpenDialog({
+        properties: props,
+        title: mode === 'folder' ? 'Select Evidence Folder' : 'Select Evidence Files or ZIP',
+        // Filters are advisory; main process detects + extracts .zip regardless.
+        filters: mode === 'folder' ? undefined : [
+          { name: 'All Files', extensions: ['*'] },
+          { name: 'ZIP Archives', extensions: ['zip'] },
+        ],
+      });
       if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true, paths: [] };
       return { success: true, paths: result.filePaths };
     } catch (e: any) {
@@ -6587,6 +6635,38 @@ ${data.content}
     try {
       const mgr = evidenceManager;
       let result: import('./evidenceManager').CopyResult;
+
+      // ── ZIP support ─────────────────────────────────────────────
+      // When the user dropped/selected one or more .zip files, extract
+      // each into a temp directory and substitute the extracted folder
+      // path for the zip path. copyFilesToEvidence walks directories
+      // recursively, so the rest of the pipeline is unchanged.
+      const tempDirsToCleanup: string[] = [];
+      if (args.storageMode === 'copy' && args.sourcePaths && args.sourcePaths.length > 0) {
+        const fsm = require('fs');
+        const osm = require('os');
+        const pthm = require('path');
+        const expanded: string[] = [];
+        for (const sp of args.sourcePaths) {
+          if (fsm.existsSync(sp) && fsm.statSync(sp).isFile() && /\.zip$/i.test(sp)) {
+            try {
+              const AdmZip = require('adm-zip');
+              const baseName = pthm.basename(sp, pthm.extname(sp)).replace(/[<>:"/\\|?*]/g, '_');
+              const tempDir = fsm.mkdtempSync(pthm.join(osm.tmpdir(), 'icac-ev-zip-'));
+              const extractDir = pthm.join(tempDir, baseName || 'extracted');
+              fsm.mkdirSync(extractDir, { recursive: true });
+              new AdmZip(sp).extractAllTo(extractDir, true);
+              tempDirsToCleanup.push(tempDir);
+              expanded.push(extractDir);
+            } catch (zipErr: any) {
+              return { success: false, error: `Failed to extract ${pthm.basename(sp)}: ${zipErr?.message || zipErr}` };
+            }
+          } else {
+            expanded.push(sp);
+          }
+        }
+        args = { ...args, sourcePaths: expanded };
+      }
 
       if (args.storageMode === 'reference') {
         if (!args.referenceFolder) {
@@ -6652,6 +6732,15 @@ ${data.content}
         file_count: payload.file_count,
         storage_mode: payload.storage_mode,
       });
+      // Best-effort cleanup of any temp dirs created for zip extraction.
+      // (Files are already copied into the case dir, so removing temp is
+      // safe.) Failures are non-fatal — the OS will reap %TEMP% eventually.
+      try {
+        const fsm = require('fs');
+        for (const td of tempDirsToCleanup) {
+          try { fsm.rmSync(td, { recursive: true, force: true }); } catch {}
+        }
+      } catch {}
       return { success: true, evidence: inserted };
     } catch (error: any) {
       console.error('[evidence-save] error:', error);
@@ -6783,8 +6872,24 @@ ${data.content}
   ipcMain.handle('datapilot-scan', async (_event, args: { folderPath: string }) => {
     try {
       const dp = datapilotParser;
-      const preview = await dp.scanFolder(args.folderPath);
-      return { success: true, preview };
+      // ZIP support: if a .zip was passed instead of a folder, expand it
+      // into a temp dir first and scan that. (Temp dir persists for the
+      // session so the user can later "save" the evidence pointing at it.)
+      let scanPath = args.folderPath;
+      const fsm = require('fs');
+      const pthm = require('path');
+      if (fsm.existsSync(scanPath) && fsm.statSync(scanPath).isFile() && /\.zip$/i.test(scanPath)) {
+        const AdmZip = require('adm-zip');
+        const osm = require('os');
+        const baseName = pthm.basename(scanPath, pthm.extname(scanPath)).replace(/[<>:"/\\|?*]/g, '_');
+        const tempDir = fsm.mkdtempSync(pthm.join(osm.tmpdir(), 'icac-dp-zip-'));
+        const extractDir = pthm.join(tempDir, baseName || 'extracted');
+        fsm.mkdirSync(extractDir, { recursive: true });
+        new AdmZip(scanPath).extractAllTo(extractDir, true);
+        scanPath = extractDir;
+      }
+      const preview = await dp.scanFolder(scanPath);
+      return { success: true, preview, resolvedPath: scanPath };
     } catch (error: any) {
       console.error('[datapilot-scan] error:', error);
       return { success: false, error: error?.message || String(error) };

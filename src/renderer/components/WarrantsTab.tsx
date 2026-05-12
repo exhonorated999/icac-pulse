@@ -210,9 +210,15 @@ export function WarrantsTab({ caseId, caseNumber }: WarrantsTabProps) {
 
   const handleUploadWarrantReturn = async (warrantId: number) => {
     try {
+      // Allow selecting an entire folder, individual files, OR a .zip
+      // archive. Main process auto-extracts ZIPs into the case directory.
       const result = await window.electronAPI.openFolderDialog({
         properties: ['openDirectory', 'openFile', 'multiSelections'],
-        title: 'Select Warrant Return Files or Folder'
+        title: 'Select Warrant Return Files, Folder, or ZIP',
+        filters: [
+          { name: 'All Files', extensions: ['*'] },
+          { name: 'ZIP Archives', extensions: ['zip'] },
+        ],
       });
 
       if (result.canceled || !result.filePaths || result.filePaths.length === 0) {

@@ -4,6 +4,7 @@ import { WaitingEspIcon, ArrestIcon, AllCasesIcon, ReadyResidentialIcon, Generat
 import { ImportCaseDialog } from '../components/ImportCaseDialog';
 import { useLicense } from '../lib/LicenseContext';
 import { DemoExpiredBanner } from '../components/DemoExpiredBanner';
+import QuickStatsCard from '../components/QuickStatsCard';
 
 interface Case {
   id: number;
@@ -746,46 +747,38 @@ export function Dashboard() {
 
         {/* Right Column - Quick Stats & Tasks */}
         <div className="space-y-6">
-          {/* Quick Stats */}
-          <div className="dashboard-section bg-panel border border-accent-cyan/20 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-text-primary mb-4">Quick Stats</h3>
-            
-            <div className="space-y-2">
-              <button
-                onClick={() => handleStatClick('status', 'open', 'Open Cases')}
-                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
-              >
-                <span className="text-text-muted text-sm">Open Cases</span>
-                <span className="text-text-primary font-bold">{stats?.active ?? 0}</span>
-              </button>
-              
-              <button
-                onClick={() => handleStatClick('status', 'closed_no_arrest', 'Closed Cases')}
-                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
-              >
-                <span className="text-text-muted text-sm">Closed Cases</span>
-                <span className="text-text-primary font-bold">{stats?.closed ?? 0}</span>
-              </button>
-              
-              <button
-                onClick={() => handleStatClick('status', 'referred', 'Transferred Cases')}
-                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
-              >
-                <span className="text-text-muted text-sm">Transferred Cases</span>
-                <span className="text-text-primary font-bold">{stats?.transferred ?? 0}</span>
-              </button>
-              
-              <button
-                onClick={() => {
+          {/* Quick Stats (user-customizable; includes custom metrics) */}
+          <QuickStatsCard
+            cases={allCases}
+            builtin={[
+              {
+                key: 'builtin:open',
+                label: 'Open Cases',
+                value: stats?.active ?? 0,
+                onClick: () => handleStatClick('status', 'open', 'Open Cases'),
+              },
+              {
+                key: 'builtin:closed',
+                label: 'Closed Cases',
+                value: stats?.closed ?? 0,
+                onClick: () => handleStatClick('status', 'closed_no_arrest', 'Closed Cases'),
+              },
+              {
+                key: 'builtin:transferred',
+                label: 'Transferred Cases',
+                value: stats?.transferred ?? 0,
+                onClick: () => handleStatClick('status', 'referred', 'Transferred Cases'),
+              },
+              {
+                key: 'builtin:warrants',
+                label: 'Warrants This Month',
+                value: stats?.warrantsThisMonth ?? 0,
+                onClick: () => {
                   alert(`${stats?.warrantsThisMonth ?? 0} warrants written in ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`);
-                }}
-                className="flex justify-between items-center w-full p-3 rounded-lg bg-accent-cyan/5 border border-accent-cyan/30 hover:border-accent-cyan/50 hover:bg-accent-cyan/10 transition-colors"
-              >
-                <span className="text-text-muted text-sm">Warrants This Month</span>
-                <span className="text-text-primary font-bold">{stats?.warrantsThisMonth ?? 0}</span>
-              </button>
-            </div>
-          </div>
+                },
+              },
+            ]}
+          />
 
           {/* Task List */}
           <div className="dashboard-section bg-panel border border-accent-cyan/20 rounded-xl p-6">

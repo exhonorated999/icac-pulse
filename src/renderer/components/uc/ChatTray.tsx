@@ -59,16 +59,28 @@ export function ChatTray() {
 
   const refreshChats = useCallback(async () => {
     try {
-      const list = await window.electronAPI.ucChatList();
+      // Only show chats belonging to the active persona. Switching personas
+      // re-runs this effect (see useEffect below) so the dock filters live.
+      // When no persona is selected (first-run / empty state) we show none.
+      const list = activePersonaId != null
+        ? await window.electronAPI.ucChatList({ personaId: activePersonaId })
+        : [];
       setChats(list);
+      // If the active chat doesn't belong to this persona, clear selection
+      // so the BV/cheat sheet don't keep showing stale info.
+      setActiveChatId(prev => (prev != null && list.find(c => c.id === prev)) ? prev : null);
     } catch {}
-  }, []);
+  }, [activePersonaId]);
 
   useEffect(() => {
     refreshPersonas();
-    refreshChats();
     window.electronAPI.ucDiscreetModeGet().then(setDiscreet).catch(() => {});
-  }, [refreshPersonas, refreshChats]);
+  }, [refreshPersonas]);
+
+  // Re-pull chats every time the active persona changes (initial load too).
+  useEffect(() => {
+    refreshChats();
+  }, [refreshChats]);
 
   /* ── Mutex with ResourceDrawer ────────────────────────── */
   useEffect(() => {
@@ -269,6 +281,24 @@ export function ChatTray() {
   const activePersona = personas.find(p => p.id === (activeChat?.persona_id ?? activePersonaId)) || null;
   const totalUnread = chats.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
+  // Linked-case banner: when the active chat has a primary_case_id, pull the
+  // case row so we can show case # / title / status across the top. Re-runs
+  // whenever the active chat changes OR its case binding changes (e.g. after
+  // LinkCaseModal saves and refreshes the chat list).
+  const [linkedCase, setLinkedCase] = useState<any | null>(null);
+  useEffect(() => {
+    const caseId = activeChat?.primary_case_id;
+    if (!caseId) { setLinkedCase(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const c = await window.electronAPI.getCase(caseId);
+        if (!cancelled) setLinkedCase(c || null);
+      } catch { if (!cancelled) setLinkedCase(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [activeChat?.id, activeChat?.primary_case_id]);
+
   return (
     <>
       {/* FAB */}
@@ -427,6 +457,43 @@ export function ChatTray() {
 
               {/* Center pane: BV mount + toolbar */}
               <div className="flex-1 flex flex-col min-w-0">
+                {/* Linked case banner — only when this chat is bound to a case */}
+                {activeChat && linkedCase && (
+                  <div
+                    className="px-3 py-1.5 flex items-center gap-2 text-xs"
+                    style={{
+                      background: 'rgba(34,197,94,0.10)',
+                      borderBottom: '1px solid rgba(34,197,94,0.25)',
+                      color: '#bbf7d0',
+                    }}
+                  >
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="font-semibold tracking-wide">Case #{linkedCase.case_number || linkedCase.id}</span>
+                    {linkedCase.title && (
+                      <>
+                        <span className="opacity-60">·</span>
+                        <span className="truncate" style={{ color: '#dcfce7' }}>{linkedCase.title}</span>
+                      </>
+                    )}
+                    {linkedCase.status && (
+                      <>
+                        <span className="opacity-60">·</span>
+                        <span className="uppercase opacity-80">{linkedCase.status}</span>
+                      </>
+                    )}
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => setShowLinkCase(true)}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium"
+                      style={{ background: 'rgba(34,197,94,0.18)', color: '#86efac', border: '1px solid rgba(34,197,94,0.35)' }}
+                      title="Change linked case"
+                    >Change</button>
+                  </div>
+                )}
+
                 {/* Toolbar */}
                 <div className="px-3 py-1.5 flex items-center gap-2"
                      style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>

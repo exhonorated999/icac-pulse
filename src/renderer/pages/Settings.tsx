@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Logo } from '../components/Logo';
 import { useLicense } from '../lib/LicenseContext';
 import AuditLogPanel from '../components/AuditLogPanel';
+import CustomMetricsSection from '../components/CustomMetricsSection';
 
 export function Settings() {
   const { status: licenseStatus, activate, checkUpdate, appVersion } = useLicense();
@@ -3070,6 +3071,9 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
               </div>
             )}
           </div>
+
+          {/* ═══════════════ Custom Metrics ═══════════════ */}
+          <CustomMetricsSection />
 
           {/* Application Info */}
           <div className="bg-panel border border-accent-cyan/20 rounded-lg p-6">
