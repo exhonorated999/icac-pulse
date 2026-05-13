@@ -11058,8 +11058,25 @@ ${data.content}
   });
 
   ipcMain.handle('download-app-update', async (_event, { url }: { url: string }) => {
-    const tempDir = app.getPath('temp');
-    const installerPath = path.join(tempDir, `ICAC-PULSE-Update-${Date.now()}.exe`);
+    // Save to user's Downloads folder so the installer is always visible/discoverable.
+    // Pull a sensible filename from the URL; fall back to a generic name.
+    let baseName = 'ICAC.P.U.L.S.E-Update-Setup.exe';
+    try {
+      const urlPath = new URL(url).pathname;
+      const fromUrl = urlPath.split('/').pop();
+      if (fromUrl && /\.exe$/i.test(fromUrl)) baseName = decodeURIComponent(fromUrl);
+    } catch { /* ignore */ }
+
+    const downloadsDir = app.getPath('downloads');
+    try { fs.mkdirSync(downloadsDir, { recursive: true }); } catch { /* ignore */ }
+
+    // If a file by that name already exists, suffix it so we never partial-overwrite.
+    let installerPath = path.join(downloadsDir, baseName);
+    if (fs.existsSync(installerPath)) {
+      const ext = path.extname(baseName);
+      const stem = baseName.slice(0, baseName.length - ext.length);
+      installerPath = path.join(downloadsDir, `${stem}-${Date.now()}${ext}`);
+    }
 
     return new Promise((resolve, reject) => {
       const doDownload = (downloadUrl: string, redirectCount = 0) => {
@@ -11118,42 +11135,45 @@ ${data.content}
 
   ipcMain.handle('install-app-update', async (_event, { installerPath }: { installerPath: string }) => {
     try {
-      const appExePath = app.getPath('exe');
-      const ts = Date.now();
-      const ps1Path = path.join(app.getPath('temp'), `icac-pulse-updater-${ts}.ps1`);
+      if (!installerPath || !fs.existsSync(installerPath)) {
+        return { success: false, error: 'Installer file not found on disk.' };
+      }
 
-      // PowerShell script: Wait-Process (event-based, no polling) → silent install → restart → cleanup
-      const psContent = [
-        `try { Wait-Process -Id ${process.pid} -Timeout 30 -ErrorAction SilentlyContinue } catch {}`,
-        'Start-Sleep -Seconds 1',
-        `Start-Process -FilePath '${installerPath.replace(/'/g, "''")}' -ArgumentList '/S' -Wait`,
-        'Start-Sleep -Seconds 2',
-        `Start-Process -FilePath '${appExePath.replace(/'/g, "''")}'`,
-        `Remove-Item -LiteralPath '${installerPath.replace(/'/g, "''")}' -Force -ErrorAction SilentlyContinue`,
-        `Remove-Item -LiteralPath '${ps1Path.replace(/'/g, "''")}' -Force -ErrorAction SilentlyContinue`,
-      ].join('\r\n');
+      // Launch the installer via the Windows shell.  This is the most reliable
+      // path for an unsigned NSIS perMachine installer: the OS surfaces the
+      // UAC consent prompt on the secure desktop, and the user sees the normal
+      // NSIS UI (license / location / install).  After the user clicks Finish,
+      // electron-builder's `runAfterFinish: true` relaunches the new app.
+      //
+      // The installer file is left in Downloads so the user can re-run it
+      // manually if anything goes wrong (e.g. UAC denied, SmartScreen prompt).
+      const openErr = await shell.openPath(installerPath);
+      if (openErr) {
+        return { success: false, error: openErr, installerPath };
+      }
 
-      fs.writeFileSync(ps1Path, psContent, 'utf-8');
-
-      const child = spawn('powershell.exe', [
-        '-WindowStyle', 'Hidden',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', ps1Path
-      ], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      child.unref();
-
-      // Give PowerShell a moment to start, then quit
+      // Give the shell ~1.5s to spawn the installer process before quitting,
+      // so the new process isn't orphaned mid-launch.
       setTimeout(() => {
-        app.quit();
-      }, 500);
+        try { app.quit(); } catch { /* ignore */ }
+      }, 1500);
 
-      return { success: true };
+      return { success: true, installerPath };
     } catch (error: any) {
-      return { success: false, error: error.message };
+      return { success: false, error: error?.message || String(error) };
+    }
+  });
+
+  // Reveal a file in Explorer (used as a fallback if the installer launch fails).
+  ipcMain.handle('show-update-in-folder', async (_event, { installerPath }: { installerPath: string }) => {
+    try {
+      if (installerPath && fs.existsSync(installerPath)) {
+        shell.showItemInFolder(installerPath);
+        return { success: true };
+      }
+      return { success: false, error: 'Installer file not found.' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || String(error) };
     }
   });
 

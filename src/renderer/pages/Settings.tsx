@@ -15,6 +15,7 @@ export function Settings() {
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'ready' | 'installing'>('idle');
   const [downloadProgress, setDownloadProgress] = useState({ percent: 0, transferred: 0, total: 0 });
   const [updateError, setUpdateError] = useState('');
+  const [installerPath, setInstallerPath] = useState('');
   const [casesPath, setCasesPath] = useState('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [mediaEnabled, setMediaEnabled] = useState(() => localStorage.getItem('mediaPlayerEnabled') === 'true');
@@ -599,11 +600,24 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
       window.electronAPI.removeUpdateDownloadProgressListener();
 
       if (result.success && result.installerPath) {
+        setInstallerPath(result.installerPath);
         setUpdatePhase('installing');
 
-        // Auto-proceed to install — launches silent NSIS + batch restart script, then quits app
-        await window.electronAPI.installAppUpdate(result.installerPath);
-        // If we get here, app is about to quit — show status
+        // Launches the NSIS installer via Windows shell — surfaces UAC consent
+        // dialog so the user can approve elevation, then walks through the
+        // standard NSIS installer UI.  The app quits ~1.5s after launch.
+        const installResult = await window.electronAPI.installAppUpdate(result.installerPath);
+
+        if (!installResult.success) {
+          // Launch failed — keep the installer visible and offer manual options.
+          setUpdatePhase('idle');
+          setUpdateError(
+            installResult.error
+              ? `Could not launch installer (${installResult.error}). The file is saved in your Downloads folder — open it manually to finish updating.`
+              : 'Could not launch installer. The file is saved in your Downloads folder — open it manually to finish updating.'
+          );
+        }
+        // If we get here with success=true, the app is about to quit.
       } else {
         setUpdatePhase('idle');
         setUpdateError('Download failed. Please try again.');
@@ -807,19 +821,50 @@ BY INSTALLING, COPYING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE REA
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Installing update — app will restart automatically...
+                    Launching installer — approve the UAC prompt to continue
                   </div>
                   <div className="w-full bg-panel rounded-full h-3 overflow-hidden border border-accent-cyan/20">
                     <div className="h-full bg-gradient-to-r from-accent-cyan to-accent-cyan/70 rounded-full animate-pulse" style={{ width: '100%' }} />
                   </div>
-                  <p className="text-text-muted text-xs mt-2">Your case data and settings are safe. The application will restart momentarily.</p>
+                  <p className="text-text-muted text-xs mt-2">
+                    A Windows User Account Control prompt will appear shortly. Click <span className="text-text-secondary font-medium">Yes</span> to allow the installer, then follow the on-screen steps. Your case data and settings are preserved.
+                  </p>
+                  {installerPath && (
+                    <p className="text-text-muted text-xs mt-1">
+                      Installer saved to: <span className="text-text-secondary">{installerPath}</span>
+                    </p>
+                  )}
                 </div>
               )}
 
               {/* Error message */}
               {updateError && (
                 <div className="mt-3 p-3 bg-status-error/10 border border-status-error/30 rounded text-status-error text-sm">
-                  {updateError}
+                  <div>{updateError}</div>
+                  {installerPath && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => window.electronAPI.showUpdateInFolder(installerPath)}
+                        className="px-3 py-1.5 bg-status-error/20 hover:bg-status-error/30 border border-status-error/40 rounded text-xs font-medium"
+                      >
+                        Show in Folder
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setUpdateError('');
+                          setUpdatePhase('installing');
+                          const r = await window.electronAPI.installAppUpdate(installerPath);
+                          if (!r.success) {
+                            setUpdatePhase('idle');
+                            setUpdateError(r.error ? `Could not launch installer (${r.error}).` : 'Could not launch installer.');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-status-error/20 hover:bg-status-error/30 border border-status-error/40 rounded text-xs font-medium"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

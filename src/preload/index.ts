@@ -620,6 +620,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('download-app-update', { url }),
   installAppUpdate: (installerPath: string) =>
     ipcRenderer.invoke('install-app-update', { installerPath }),
+  showUpdateInFolder: (installerPath: string) =>
+    ipcRenderer.invoke('show-update-in-folder', { installerPath }),
   onUpdateDownloadProgress: (callback: (data: { percent: number; transferred: number; total: number }) => void) => {
     ipcRenderer.on('update-download-progress', (_event, data) => callback(data));
   },
