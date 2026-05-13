@@ -155,14 +155,40 @@ function verifyChecksum(filePath: string, expectedChecksum: string): boolean {
 function importCaseData(db: Database, manifest: any, newCaseNumber: string): number {
   const warnings: string[] = [];
   
-  // Get current user
+  // Get current user — auto-create a default 'Officer' if none exists.
+  // This covers fresh installs and portable mode without registration,
+  // and is a defensive guard so an .pulse import never fails due to an
+  // empty users table on the receiving machine.
   const userStmt = db.prepare('SELECT id FROM users ORDER BY last_login DESC LIMIT 1');
-  const currentUser = userStmt.get();
-  
+  let currentUser = userStmt.get();
+
   if (!currentUser) {
-    throw new Error('No user found. Please register first.');
+    // Double-check via COUNT before inserting to avoid creating a duplicate
+    // when the row exists but .get() returned falsy for any reason.
+    let userCount = 0;
+    try {
+      const countRow: any = db.prepare('SELECT COUNT(*) AS c FROM users').get();
+      userCount = Number(countRow?.c || 0);
+    } catch { /* ignore */ }
+
+    if (userCount === 0) {
+      try {
+        db.prepare("INSERT INTO users (username, hardware_id) VALUES ('Officer', 'auto-created-on-import')").run();
+      } catch {
+        try { db.prepare("INSERT INTO users (username) VALUES ('Officer')").run(); } catch { /* ignore */ }
+      }
+    }
+
+    // Re-query: try last_login order first, then fall back to lowest id.
+    currentUser = userStmt.get();
+    if (!currentUser) {
+      currentUser = db.prepare('SELECT id FROM users ORDER BY id ASC LIMIT 1').get();
+    }
+    if (!currentUser) {
+      throw new Error('Could not resolve or create a user for the import. Please register a user and try again.');
+    }
   }
-  
+
   const userId = currentUser.id;
   const caseData = manifest.data;
   
