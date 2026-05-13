@@ -222,10 +222,10 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
       
       ctStmt.run(
         newCaseId,
-        caseData.caseTypeData.cybertip_number || null,
-        caseData.caseTypeData.report_date || null,
+        caseData.caseTypeData.cybertip_number || '',
+        caseData.caseTypeData.report_date || '',
         caseData.caseTypeData.occurrence_date || null,
-        caseData.caseTypeData.reporting_company || null,
+        caseData.caseTypeData.reporting_company || '',
         caseData.caseTypeData.priority_level || null,
         caseData.caseTypeData.date_received_utc || null,
         caseData.caseTypeData.ncmec_folder_path || null
@@ -274,34 +274,51 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
       
       p2pStmt.run(
         newCaseId,
-        caseData.caseTypeData.download_date || null,
-        caseData.caseTypeData.platform || null,
-        caseData.caseTypeData.suspect_ip || null,
-        caseData.caseTypeData.ip_provider || null,
+        caseData.caseTypeData.download_date || '',
+        // platform has a CHECK constraint — must be one of shareazza/bittorrent/freenet/other
+        ['shareazza', 'bittorrent', 'freenet', 'other'].includes(caseData.caseTypeData.platform)
+          ? caseData.caseTypeData.platform
+          : 'other',
+        caseData.caseTypeData.suspect_ip || '',
+        caseData.caseTypeData.ip_provider || '',
         caseData.caseTypeData.download_folder_path || null
       );
       
     } else if (caseType === 'chat' && caseData.caseTypeData) {
+      // chat_data has identifiers TEXT NOT NULL (stored as JSON in addition to
+      // the relational chat_identifiers table).  The exporter overwrites the
+      // JSON string with an array of relational rows from chat_identifiers,
+      // so we rebuild a JSON string here for the chat_data row.
+      const idRows = Array.isArray(caseData.caseTypeData.identifiers)
+        ? caseData.caseTypeData.identifiers
+        : [];
+      const identifiersJson = JSON.stringify(
+        idRows.map((r: any) => (typeof r === 'string' ? r : r?.identifier_value || ''))
+              .filter((v: string) => v.length > 0)
+      );
+
       const chatStmt = db.prepare(`
-        INSERT INTO chat_data (case_id, initial_contact_date, platform)
-        VALUES (?, ?, ?)
+        INSERT INTO chat_data (case_id, initial_contact_date, platform, identifiers)
+        VALUES (?, ?, ?, ?)
       `);
-      
+
       chatStmt.run(
         newCaseId,
-        caseData.caseTypeData.initial_contact_date || null,
-        caseData.caseTypeData.platform || null
+        caseData.caseTypeData.initial_contact_date || '',
+        caseData.caseTypeData.platform || '',
+        identifiersJson
       );
-      
-      // Import identifiers
-      if (caseData.caseTypeData.identifiers && Array.isArray(caseData.caseTypeData.identifiers)) {
+
+      // Import identifiers into relational table as well
+      if (idRows.length > 0) {
         const identStmt = db.prepare(`
           INSERT INTO chat_identifiers (case_id, identifier_value)
           VALUES (?, ?)
         `);
-        
-        for (const identifier of caseData.caseTypeData.identifiers) {
-          identStmt.run(newCaseId, identifier.identifier_value);
+
+        for (const identifier of idRows) {
+          const val = typeof identifier === 'string' ? identifier : identifier?.identifier_value;
+          if (val) identStmt.run(newCaseId, val);
         }
       }
       
@@ -313,7 +330,7 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
       
       otherStmt.run(
         newCaseId,
-        caseData.caseTypeData.case_type_description || null
+        caseData.caseTypeData.case_type_description || ''
       );
       
       // Import identifiers
