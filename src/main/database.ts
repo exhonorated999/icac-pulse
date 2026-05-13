@@ -3,6 +3,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 import { DBWrapper } from './db-wrapper';
+import { generateHardwareId } from './hardware';
+
+// Known sentinel strings ever written into users.hardware_id by older auto-create
+// fallbacks.  Code that compares hardware IDs treats these as "unbound" so the
+// row can be healed to the real machine fingerprint on next launch.
+export const LEGACY_HARDWARE_ID_SENTINELS = new Set([
+  'installed-mode',
+  'auto-created-on-import',
+  'portable-mode',
+]);
+
+export function isLegacyHardwareIdSentinel(value: unknown): boolean {
+  return typeof value === 'string' && LEGACY_HARDWARE_ID_SENTINELS.has(value);
+}
 
 // Safe logging function that won't throw EPIPE errors
 function safeLog(...args: any[]) {
@@ -142,8 +156,35 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   const userCheck = db.exec('SELECT COUNT(*) FROM users');
   const userCount = userCheck.length > 0 ? (userCheck[0].values[0][0] as number) : 0;
   if (userCount === 0 && !isPortableMode()) {
-    db.run("INSERT INTO users (username, hardware_id) VALUES ('Officer', 'installed-mode')");
+    // Bind the auto-created Officer row to the *real* machine fingerprint so
+    // the subsequent verifyHardwareId() check passes naturally.  Older
+    // versions inserted the sentinel string 'installed-mode' which caused the
+    // "Hardware Mismatch" screen to fire on first launch.
+    let initialHwId = 'installed-mode';
+    try { initialHwId = generateHardwareId(); } catch { /* fallback to sentinel */ }
+    const insertStmt = db.prepare("INSERT INTO users (username, hardware_id) VALUES (?, ?)");
+    insertStmt.run(['Officer', initialHwId]);
+    insertStmt.free();
     safeLog('Created default user for installed mode');
+  } else if (userCount > 0 && !isPortableMode()) {
+    // Heal any row whose hardware_id is a known sentinel from a prior install.
+    // This unblocks users who already hit the Hardware Mismatch screen because
+    // an earlier auto-create wrote 'installed-mode' or 'auto-created-on-import'.
+    try {
+      let realHwId: string | null = null;
+      try { realHwId = generateHardwareId(); } catch { realHwId = null; }
+      if (realHwId) {
+        const sentinels = Array.from(LEGACY_HARDWARE_ID_SENTINELS);
+        const placeholders = sentinels.map(() => '?').join(',');
+        const updateStmt = db.prepare(
+          `UPDATE users SET hardware_id = ? WHERE hardware_id IN (${placeholders})`
+        );
+        updateStmt.run([realHwId, ...sentinels]);
+        updateStmt.free();
+      }
+    } catch (err) {
+      safeLog('Hardware ID auto-heal skipped:', err);
+    }
   }
   
   saveDatabase();

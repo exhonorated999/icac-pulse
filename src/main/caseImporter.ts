@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import AdmZip from 'adm-zip';
 import { getDatabase, getCasesPath, saveDatabase } from './database';
+import { generateHardwareId } from './hardware';
 import type { Database } from './db-wrapper';
 
 export interface ImportProgress {
@@ -172,8 +173,20 @@ function importCaseData(db: Database, manifest: any, newCaseNumber: string): num
     } catch { /* ignore */ }
 
     if (userCount === 0) {
+      // Bind the auto-created Officer row to the real machine fingerprint so
+      // a later verifyHardwareId() check passes naturally on this machine.
+      let initialHwId = '';
+      try { initialHwId = generateHardwareId(); } catch { initialHwId = ''; }
       try {
-        db.prepare("INSERT INTO users (username, hardware_id) VALUES ('Officer', 'auto-created-on-import')").run();
+        if (initialHwId) {
+          const insertHw = db.prepare("INSERT INTO users (username, hardware_id) VALUES (?, ?)");
+          insertHw.run('Officer', initialHwId);
+        } else {
+          // No real hardware ID available — fall back to a NULL hardware_id
+          // (the verify path treats missing rows as "allow") rather than a
+          // sentinel string that would trigger Hardware Mismatch.
+          db.prepare("INSERT INTO users (username) VALUES ('Officer')").run();
+        }
       } catch {
         try { db.prepare("INSERT INTO users (username) VALUES ('Officer')").run(); } catch { /* ignore */ }
       }

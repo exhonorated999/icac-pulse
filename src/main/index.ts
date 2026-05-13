@@ -7,7 +7,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { spawn } from 'child_process';
 import AdmZip from 'adm-zip';
-import { initDatabase, getDatabase, getRawDatabase, closeDatabase, saveDatabase, getCasesPath, setCasesPath, getUserDataPath } from './database';
+import { initDatabase, getDatabase, getRawDatabase, closeDatabase, saveDatabase, getCasesPath, setCasesPath, getUserDataPath, isLegacyHardwareIdSentinel } from './database';
 import { generateHardwareId, verifyHardwareId } from './hardware';
 import * as fileManager from './fileManager';
 import * as evidenceManager from './evidenceManager';
@@ -754,12 +754,32 @@ function registerIPCHandlers() {
   ipcMain.handle(IPC_CHANNELS.VERIFY_HARDWARE, async () => {
     try {
       const result = db.exec('SELECT hardware_id FROM users LIMIT 1');
-      
+
       if (!result.length || !result[0].values.length) {
         return true; // No user registered yet
       }
-      
+
       const hardwareId = result[0].values[0][0] as string;
+
+      // Heal known sentinel values written by older auto-create fallbacks
+      // (e.g. 'installed-mode', 'auto-created-on-import').  These never match
+      // a real machine hash and would otherwise trigger the Hardware Mismatch
+      // screen on every launch.  Bind the row to the current machine instead.
+      if (isLegacyHardwareIdSentinel(hardwareId)) {
+        try {
+          const realHwId = generateHardwareId();
+          db.run(
+            'UPDATE users SET hardware_id = ? WHERE hardware_id = ?',
+            [realHwId, hardwareId]
+          );
+          return true;
+        } catch {
+          // If we can't compute the real ID, fail open rather than locking
+          // the user out — they still have to register/log in normally.
+          return true;
+        }
+      }
+
       return verifyHardwareId(hardwareId);
     } catch (error) {
       // safeLog('Hardware verification error:', error);
